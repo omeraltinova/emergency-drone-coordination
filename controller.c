@@ -50,9 +50,54 @@ void cleanup_and_exit() {
     printf("Cleanup: Drone fleet and threads cleanup complete.\n");
 
     printf("Cleaning up resources...\n");
-    if (survivors) survivors->destroy(survivors);
-    if (helpedsurvivors) helpedsurvivors->destroy(helpedsurvivors);
-    if (drones) drones->destroy(drones);
+
+    // Free Survivor objects stored in the survivors list
+    if (survivors) {
+        printf("Cleaning up individual survivors from 'survivors' list...\n");
+        pthread_mutex_lock(&survivors->lock); // Lock for safe iteration
+        Node *current_survivor_node = survivors->head;
+        while (current_survivor_node != NULL) {
+            if (current_survivor_node->data) {
+                Survivor *s_ptr = *(Survivor**)current_survivor_node->data;
+                if (s_ptr) {
+                    // printf("Freeing survivor (from global survivors list): %s at %p\n", s_ptr->info, (void*)s_ptr); // Optional debug log
+                    free(s_ptr);
+                }
+            }
+            current_survivor_node = current_survivor_node->next;
+        }
+        pthread_mutex_unlock(&survivors->lock); // Unlock
+        printf("Destroying global survivors list structure...\n");
+        survivors->destroy(survivors);
+        survivors = NULL; 
+    }
+
+    // Free Survivor objects stored in the helpedsurvivors list
+    if (helpedsurvivors) {
+        printf("Cleaning up individual survivors from 'helpedsurvivors' list...\n");
+        pthread_mutex_lock(&helpedsurvivors->lock); // Lock for safe iteration
+        Node *current_helped_node = helpedsurvivors->head;
+        while (current_helped_node != NULL) {
+            if (current_helped_node->data) {
+                Survivor *s_ptr = *(Survivor**)current_helped_node->data;
+                if (s_ptr) {
+                    // printf("Freeing survivor (from helpedsurvivors list): %s at %p\n", s_ptr->info, (void*)s_ptr); // Optional debug log
+                    free(s_ptr);
+                }
+            }
+            current_helped_node = current_helped_node->next;
+        }
+        pthread_mutex_unlock(&helpedsurvivors->lock); // Unlock
+        printf("Destroying global helpedsurvivors list structure...\n");
+        helpedsurvivors->destroy(helpedsurvivors);
+        helpedsurvivors = NULL;
+    }
+
+    if (drones) {
+        printf("Destroying global drones list structure...\n");
+        drones->destroy(drones);
+        drones = NULL;
+    }
     freemap();
     quit_all();
 }
