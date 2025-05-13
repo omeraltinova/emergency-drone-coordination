@@ -57,12 +57,10 @@ void cleanup_and_exit() {
         pthread_mutex_lock(&survivors->lock); // Lock for safe iteration
         Node *current_survivor_node = survivors->head;
         while (current_survivor_node != NULL) {
-            if (current_survivor_node->data) {
-                Survivor *s_ptr = *(Survivor**)current_survivor_node->data;
-                if (s_ptr) {
-                    // printf("Freeing survivor (from global survivors list): %s at %p\n", s_ptr->info, (void*)s_ptr); // Optional debug log
-                    free(s_ptr);
-                }
+            Survivor *s_ptr = *(Survivor**)current_survivor_node->data;
+            if (s_ptr) {
+                // printf("Freeing survivor (from global survivors list): %s at %p\n", s_ptr->info, (void*)s_ptr); // Optional debug log
+                free(s_ptr);
             }
             current_survivor_node = current_survivor_node->next;
         }
@@ -78,12 +76,10 @@ void cleanup_and_exit() {
         pthread_mutex_lock(&helpedsurvivors->lock); // Lock for safe iteration
         Node *current_helped_node = helpedsurvivors->head;
         while (current_helped_node != NULL) {
-            if (current_helped_node->data) {
-                Survivor *s_ptr = *(Survivor**)current_helped_node->data;
-                if (s_ptr) {
-                    // printf("Freeing survivor (from helpedsurvivors list): %s at %p\n", s_ptr->info, (void*)s_ptr); // Optional debug log
-                    free(s_ptr);
-                }
+            Survivor *s_ptr = *(Survivor**)current_helped_node->data;
+            if (s_ptr) {
+                // printf("Freeing survivor (from helpedsurvivors list): %s at %p\n", s_ptr->info, (void*)s_ptr); // Optional debug log
+                free(s_ptr);
             }
             current_helped_node = current_helped_node->next;
         }

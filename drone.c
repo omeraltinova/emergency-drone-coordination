@@ -10,7 +10,7 @@
 
 // Global drone fleet
 Drone *drone_fleet = NULL;
-int num_drones = 2; // Reduced fleet size for testing
+int num_drones = 10; // Default fleet size
 
 int initialize_drones() {
     printf("initialize_drones: START\n");
