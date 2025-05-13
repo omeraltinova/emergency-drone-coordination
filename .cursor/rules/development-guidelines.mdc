@@ -1,0 +1,27 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Development Guidelines
+
+## Thread Safety
+- All shared data structures must be properly synchronized
+- Use mutexes for critical sections
+- Avoid race conditions in drone and server components
+
+## Memory Management
+- Fix memory leaks in `destroy()` function
+- Replace `sprintf` with `snprintf` to prevent buffer overflows
+- Consider implementing a free list for node reuse and reduced allocation overhead
+
+## Socket Programming
+- Use TCP for reliable communication
+- Handle connection errors gracefully
+- Implement timeouts for unresponsive clients
+- Follow JSON message format as specified in [communication-protocol.md](mdc:communication-protocol.md)
+
+## Testing
+- Implement load testing with multiple drones
+- Verify thread safety with concurrent operations
+- Test fault tolerance by simulating disconnected drones

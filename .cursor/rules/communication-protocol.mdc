@@ -1,0 +1,28 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Communication Protocol
+
+The project uses a standardized JSON-based protocol for communication between drones (clients) and the server.
+
+## Message Types:
+1. **Drone → Server**:
+   - `HANDSHAKE`: Register drone with server
+   - `STATUS_UPDATE`: Periodic drone status updates
+   - `MISSION_COMPLETE`: Notify server of mission completion
+   - `HEARTBEAT_RESPONSE`: Acknowledge server heartbeat
+
+2. **Server → Drone**:
+   - `HANDSHAKE_ACK`: Confirm drone registration
+   - `ASSIGN_MISSION`: Assign a mission to a drone
+   - `HEARTBEAT`: Check if drone is alive
+
+3. **Either → Either**:
+   - `ERROR`: Report protocol violations or issues
+
+## Protocol Details:
+- Transport: TCP (reliable, ordered delivery)
+- Encoding: JSON (UTF-8)
+- See [communication-protocol.md](mdc:communication-protocol.md) for full details

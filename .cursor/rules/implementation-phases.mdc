@@ -1,0 +1,24 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Implementation Phases
+
+The project is implemented in three phases:
+
+## Phase 1: Thread-Safe Lists & Simulated Clients/Servers
+- Implement synchronization for thread-safe list operations
+- Simulate drones and survivors with threads (no sockets yet)
+- Visualize with SDL: survivors as red cells, idle drones as blue dots, missions as green lines
+
+## Phase 2: Basic Socket Communication
+- Replace simulated threads with real socket-based clients and servers
+- Server implementation with multi-threaded handling of drone connections
+- Drone client implementation with JSON message format
+- AI controller logic for assigning drones to survivors
+
+## Phase 3: Advanced Features & Testing
+- Load testing with 50+ drones
+- Fault tolerance for disconnected drones
+- Optional extensions: web-based dashboard, QoS prioritization

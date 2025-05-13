@@ -1,0 +1,29 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Code Components
+
+## Client (Drone)
+Key functions:
+- `connect_to_server()`: Establishes TCP connection
+- `send_status_update()`: Periodically reports drone state
+- `navigate_to_target()`: Simulates movement toward survivor coordinates
+- See [drone.c](mdc:drone.c) for implementation
+
+## Server
+Key functions:
+- `handle_drone()`: Thread to manage each drone connection
+- `assign_missions()`: AI logic to match drones and survivors
+- `log_performance()`: Track average survivor wait time and drone utilization
+- See [server.c](mdc:server.c) for implementation
+
+## List Implementation
+- Thread-safe list operations required for concurrent access
+- Implement mutex synchronization for all operations
+- See [list.c](mdc:list.c) for implementation
+
+## Visualization
+- SDL-based visualization of drones, survivors, and missions
+- See [view.c](mdc:view.c) for implementation

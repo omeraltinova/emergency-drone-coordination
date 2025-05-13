@@ -1,0 +1,23 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Project Overview - Emergency Drone Coordination System
+
+This is a client-server system for emergency drone coordination where drones (clients) communicate with a central server to coordinate emergency aid for survivors.
+
+## Key Components:
+- **Server**: Coordinates drones and manages survivors
+- **Drones**: Client components that connect to server and perform rescue missions
+- **Communication Protocol**: JSON-based protocol for client-server interactions 
+
+## Key Files:
+- [README.md](mdc:README.md): Project requirements and specifications
+- [communication-protocol.md](mdc:communication-protocol.md): Communication protocol details
+- [list.c](mdc:list.c): Thread-safe list implementation
+- [drone.c](mdc:drone.c): Drone simulator
+- [server.c](mdc:server.c): Server implementation
+- [view.c](mdc:view.c): Visualization using SDL
+- [ai.c](mdc:ai.c): AI controller for assigning missions
+- [survivor.c](mdc:survivor.c): Survivor generation and management
