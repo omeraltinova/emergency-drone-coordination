@@ -1,6 +1,7 @@
 #ifndef DRONE_H
 #define DRONE_H
 
+#include <stdbool.h> // For bool, true, false
 #include "coord.h"
 #include <time.h>
 #include <pthread.h>
@@ -22,6 +23,8 @@ typedef struct drone {
     struct tm last_update;
     pthread_mutex_t lock;   // Per-drone mutex
     pthread_cond_t mission_cv;  // Condition variable for new missions
+    volatile bool lock_initialized;    // Flag to track if mutex is initialized
+    volatile bool cv_initialized;      // Flag to track if condition variable is initialized
 } Drone;
 
 // Global drone list (extern)

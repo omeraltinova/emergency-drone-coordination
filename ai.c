@@ -6,6 +6,14 @@
 #include "headers/globals.h"
 
 void assign_mission(Drone *drone, Coord target) {
+    if (!drone) {
+        fprintf(stderr, "assign_mission: Attempted to assign mission to a NULL drone.\n");
+        return;
+    }
+    if (!drone->lock_initialized) { // Linter might complain, but drone.h via ai.h should provide this
+        fprintf(stderr, "assign_mission: Drone %d lock not initialized. Cannot assign mission.\n", drone->id);
+        return;
+    }
     pthread_mutex_lock(&drone->lock);
     drone->target = target;
     drone->status = ON_MISSION;
@@ -21,9 +29,18 @@ Drone *find_closest_idle_drone(Coord target) {
     pthread_mutex_lock(&drones->lock);  // List mutex
     Node *node = drones->head;
     while (node != NULL) {
-        Drone* d = *((Drone**)node->data); // Cast node->data to Drone** and dereference to get Drone*
+        Drone* d = *(Drone**)node->data;    // NEW: node->data CONTAINS Drone*, so dereference a Drone**
         
-        pthread_mutex_lock(&d->lock);   // Lock INDIVIDUAL drone's lock (d is now the original drone)
+        if (!d) { 
+            node = node->next;
+            continue;
+        }
+
+        if (!d->lock_initialized) { // Linter might complain here too
+            node = node->next;
+            continue;
+        }
+        pthread_mutex_lock(&d->lock);
         if (d->status == IDLE) {
             int dist = abs(d->coord.x - target.x) +
                       abs(d->coord.y - target.y);
@@ -44,11 +61,17 @@ void *ai_controller(void *arg) {
     
     while (running) {
         Survivor *s = NULL;
-        
-        // Try to get a survivor from the list
-        s = survivors->peek(survivors);
+        void* peek_result = survivors->peek(survivors);
 
-        if (s != NULL) {
+        if (peek_result != NULL) {
+            s = *(Survivor**)peek_result;
+            
+            if (!s) {
+                fprintf(stderr, "AI: Peek returned non-NULL but dereferenced Survivor* is NULL.\n");
+                sleep(1);
+                continue;
+            }
+
             Coord survivor_coord = s->coord;
             printf("AI: Found survivor at (%d,%d)\n", survivor_coord.x, survivor_coord.y);
 
@@ -58,10 +81,10 @@ void *ai_controller(void *arg) {
                 printf("AI: Found closest drone %d for survivor at (%d,%d)\n", 
                        closest->id, survivor_coord.x, survivor_coord.y);
                 
-                if (survivors->removedata(survivors, s) == 0) {
+                if (survivors->removedata(survivors, peek_result) == 0) {
                      printf("AI: Successfully removed survivor from waiting list.\n");
                 } else {
-                    printf("AI: Failed to remove survivor from waiting list (already removed?).\n");
+                    printf("AI: Failed to remove survivor from waiting list (already removed or peek inconsistent?).\n");
                     sleep(1);
                     continue;
                 }
@@ -73,7 +96,7 @@ void *ai_controller(void *arg) {
                 s->status = 1;
                 s->helped_time = s->discovery_time;
 
-                helpedsurvivors->add(helpedsurvivors, s);
+                helpedsurvivors->add(helpedsurvivors, &s);
 
                 printf("AI: Survivor %s being helped by Drone %d\n",
                        s->info, closest->id);

@@ -37,7 +37,7 @@ void init_map(int height, int width) {
             map.cells[i][j].coord.x = i;
             map.cells[i][j].coord.y = j;
             // Create a survivor list for this cell (capacity 10)
-            map.cells[i][j].survivors = create_list(sizeof(Survivor), 10);
+            map.cells[i][j].survivors = create_list(sizeof(Survivor*), 10);
             if (!map.cells[i][j].survivors) {
                 fprintf(stderr, "Failed to create survivor list for cell [%d][%d]\n", i, j);
                 freemap();

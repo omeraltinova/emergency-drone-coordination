@@ -318,7 +318,7 @@ int removenode(List *list, Node *node) {
         }
         
         // Update last processed pointer
-        list->lastprocessed = node;
+        // list->lastprocessed = node; // Commented out: Not safe to point to a removed node for find_memcell logic.
         
         return 0;
     }
@@ -349,11 +349,16 @@ void destroy(List *list) {
  * @param print: aprint function for the object data.
  */
 void printlist(List *list, void (*print)(void *)) {
+    if (!list) return;
+    pthread_mutex_lock(&list->lock);
     Node *temp = list->head;
+    printf("List (Head to Tail):\n");
     while (temp != NULL) {
         print(temp->data);
         temp = temp->next;
     }
+    printf("End of List\n");
+    pthread_mutex_unlock(&list->lock);
 }
 /**
  * @brief print list starting from tail
@@ -362,9 +367,14 @@ void printlist(List *list, void (*print)(void *)) {
  * @param print: print function
  */
 void printlistfromtail(List *list, void (*print)(void *)) {
+    if (!list) return;
+    pthread_mutex_lock(&list->lock);
     Node *temp = list->tail;
+    printf("List (Tail to Head):\n");
     while (temp != NULL) {
         print(temp->data);
         temp = temp->prev;
     }
+    printf("End of List (from Tail)\n");
+    pthread_mutex_unlock(&list->lock);
 }

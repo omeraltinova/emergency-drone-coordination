@@ -1,5 +1,6 @@
 #include "headers/drone.h"
 #include "headers/globals.h"
+#include <stdbool.h> // For true/false
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
@@ -12,7 +13,7 @@ Drone *drone_fleet = NULL;
 int num_drones = 10; // Default fleet size
 
 int initialize_drones() {
-    printf("initialize_drones: START\n"); // DEBUG
+    printf("initialize_drones: START\n");
     printf("Allocating memory for %d drones...\n", num_drones);
     drone_fleet = malloc(sizeof(Drone) * num_drones);
     if (!drone_fleet) {
@@ -21,7 +22,6 @@ int initialize_drones() {
     }
     srand(time(NULL));
 
-    // Verify global drones list exists
     if (!drones) {
         fprintf(stderr, "Global drones list not initialized\n");
         free(drone_fleet);
@@ -38,88 +38,101 @@ int initialize_drones() {
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
     for(int i = 0; i < num_drones; i++) {
-        printf("Initializing drone %d...\n", i);
-        
         drone_fleet[i].id = i;
         drone_fleet[i].status = IDLE;
-        drone_fleet[i].thread_id = 0;  // Initialize thread ID to 0
+        drone_fleet[i].thread_id = 0;
+        drone_fleet[i].lock_initialized = false; // Initialize flag
+        drone_fleet[i].cv_initialized = false;   // Initialize flag
         
-        // Generate valid coordinates within map bounds
+        printf("Initializing drone %d...\n", i);
+        
         drone_fleet[i].coord.x = rand() % map.height;
         drone_fleet[i].coord.y = rand() % map.width;
         
-        // Verify the coordinates are valid
         if (drone_fleet[i].coord.x >= map.height || drone_fleet[i].coord.y >= map.width) {
             fprintf(stderr, "Invalid coordinates for drone %d: (%d,%d)\n",
                     i, drone_fleet[i].coord.x, drone_fleet[i].coord.y);
             init_failed = 1;
-            break;
+            break; 
         }
-        
         printf("Drone %d initial position: (%d,%d)\n", 
                i, drone_fleet[i].coord.x, drone_fleet[i].coord.y);
         
         drone_fleet[i].target = drone_fleet[i].coord;
         
-        // Initialize synchronization primitives with error checking
         printf("Initializing mutex for drone %d...\n", i);
         if (pthread_mutex_init(&drone_fleet[i].lock, NULL) != 0) {
             fprintf(stderr, "Failed to initialize mutex for drone %d\n", i);
             init_failed = 1;
-            break;
+            break; 
         }
+        drone_fleet[i].lock_initialized = true; // Set flag on success
         
         printf("Initializing condition variable for drone %d...\n", i);
         if (pthread_cond_init(&drone_fleet[i].mission_cv, NULL) != 0) {
             fprintf(stderr, "Failed to initialize condition variable for drone %d\n", i);
-            pthread_mutex_destroy(&drone_fleet[i].lock);
+            if (drone_fleet[i].lock_initialized) { // Cleanup previously initialized mutex
+                pthread_mutex_destroy(&drone_fleet[i].lock);
+                drone_fleet[i].lock_initialized = false;
+            }
             init_failed = 1;
             break;
         }
+        drone_fleet[i].cv_initialized = true; // Set flag on success
         
-        // Add to global drone list with proper locking
+        Drone* drone_ptr = &drone_fleet[i]; 
         printf("Adding drone %d to global list...\n", i);
-        Drone* drone_ptr = &drone_fleet[i]; // drone_ptr IS ALREADY Drone*
-        Node *added_node = drones->add(drones, &drone_ptr); // Pass address of drone_ptr for list to copy the pointer value
+        Node *added_node = drones->add(drones, &drone_ptr);    // Pass address of drone_ptr
         if (!added_node) {
             fprintf(stderr, "Failed to add drone %d to global list - list might be full\n", i);
+            if (drone_fleet[i].cv_initialized) { // Cleanup CV
+                pthread_cond_destroy(&drone_fleet[i].mission_cv);
+                drone_fleet[i].cv_initialized = false;
+            }
+            if (drone_fleet[i].lock_initialized) { // Cleanup mutex
+                pthread_mutex_destroy(&drone_fleet[i].lock);
+                drone_fleet[i].lock_initialized = false;
+            }
             init_failed = 1;
             break;
         }
         printf("Successfully added drone %d to global list\n", i);
         
         printf("Creating thread for drone %d...\n", i);
-        
-        // Create thread with error checking
-        printf("Calling pthread_create for drone %d...\n", i);
         int thread_result = pthread_create(&drone_fleet[i].thread_id, &attr, drone_behavior, &drone_fleet[i]);
-        printf("pthread_create returned %d for drone %d\n", thread_result, i);
-        
         if (thread_result != 0) {
             fprintf(stderr, "Failed to create thread for drone %d: %s\n", i, strerror(thread_result));
-            // Remove from global list since thread creation failed
-            drones->removedata(drones, &drone_fleet[i]);
+            drones->removedata(drones, &drone_ptr);    // Pass address of drone_ptr for removal comparison
+            if (drone_fleet[i].cv_initialized) { // Cleanup CV
+                pthread_cond_destroy(&drone_fleet[i].mission_cv);
+                drone_fleet[i].cv_initialized = false;
+            }
+            if (drone_fleet[i].lock_initialized) { // Cleanup mutex
+                pthread_mutex_destroy(&drone_fleet[i].lock);
+                drone_fleet[i].lock_initialized = false;
+            }
             init_failed = 1;
             break;
         }
-        
         printf("Drone %d thread created successfully (thread_id: %lu)\n", i, (unsigned long)drone_fleet[i].thread_id);
-        
-        // Small delay between thread creations
-        usleep(50000);  // 50ms delay
+        usleep(50000);
     }
 
     pthread_attr_destroy(&attr);
 
     if (init_failed) {
-        fprintf(stderr, "Drone initialization failed, cleaning up...\n");
-        cleanup_drones();
-        printf("initialize_drones: END (init_failed)\n"); // DEBUG
-        return -1;
+        fprintf(stderr, "Drone initialization failed overall. Cleaning up partially initialized drones...\n");
+        // The loop already cleans up the drone that caused the failure.
+        // We might need to iterate 'i' drones that were fully or partially set up before failure.
+        // For simplicity here, the break exits, and controller's cleanup_and_exit will call cleanup_drones.
+        // A more robust internal cleanup here would loop from 0 to i-1 (or num_drones if failure was outside loop)
+        // and destroy initialized resources. However, cleanup_drones should handle this if called.
+        // The main issue is to ensure cleanup_drones correctly uses the flags.
+        return -1; 
     }
     
     printf("All drones initialized successfully\n");
-    printf("initialize_drones: END (success)\n"); // DEBUG
+    printf("initialize_drones: END (success)\n");
     return 0;
 }
 
@@ -210,15 +223,14 @@ cleanup_exit_thread:
 }
 
 void cleanup_drones() {
-    printf("cleanup_drones: START\n"); // DEBUG
+    printf("cleanup_drones: START\n");
     if (!drone_fleet) {
-        printf("cleanup_drones: drone_fleet is NULL, exiting.\n"); // DEBUG
+        printf("cleanup_drones: drone_fleet is NULL, exiting.\n");
         return;
     }
     
     for(int i = 0; i < num_drones; i++) {
-        // Cancel thread if it exists
-        if (drone_fleet[i].thread_id != 0) { // Check if thread_id is valid
+        if (drone_fleet[i].thread_id != 0) {
             printf("cleanup_drones: Canceling thread for drone %d (tid: %lu)...\n", i, (unsigned long)drone_fleet[i].thread_id);
             pthread_cancel(drone_fleet[i].thread_id);
             void* join_status;
@@ -233,18 +245,37 @@ void cleanup_drones() {
             } else {
                 fprintf(stderr, "cleanup_drones: Error joining drone %d thread: %s\n", i, strerror(join_res));
             }
+            drone_fleet[i].thread_id = 0; // Mark thread as joined/handled
         } else {
-            printf("cleanup_drones: Drone %d has no valid thread_id to cancel/join.\n", i);
+            printf("cleanup_drones: Drone %d has no valid thread_id to cancel/join or was already handled.\n", i);
         }
         
-        // Destroy synchronization primitives
-        pthread_mutex_destroy(&drone_fleet[i].lock);
-        pthread_cond_destroy(&drone_fleet[i].mission_cv);
+        if (drone_fleet[i].cv_initialized) {
+            printf("cleanup_drones: Destroying CV for drone %d\n", i);
+            pthread_cond_destroy(&drone_fleet[i].mission_cv);
+            drone_fleet[i].cv_initialized = false; 
+        }
+        if (drone_fleet[i].lock_initialized) {
+            printf("cleanup_drones: Destroying mutex for drone %d\n", i);
+            pthread_mutex_destroy(&drone_fleet[i].lock);
+            drone_fleet[i].lock_initialized = false; 
+        }
+
+        Drone* drone_to_remove = &drone_fleet[i];
+        if (drones) { // Check if global drones list exists
+             // We attempt removal, but the drone might have already been removed
+             // or failed to be added. removedata should handle "not found" gracefully.
+            if (drones->removedata(drones, &drone_to_remove) == 0) {    // Pass address of drone_to_remove (Drone*)
+                printf("cleanup_drones: Drone %d successfully removed from global list.\n", i);
+            } else {
+                // This could also mean drone was not in the list to begin with if init failed early
+                printf("cleanup_drones: Drone %d not found in global list or failed to remove.\n", i);
+            }
+        }
     }
     
-    // Free the fleet array
     free(drone_fleet);
     drone_fleet = NULL;
     printf("Drone fleet cleanup complete\n");
-    printf("cleanup_drones: END\n"); // DEBUG
+    printf("cleanup_drones: END\n");
 }

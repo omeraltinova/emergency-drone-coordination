@@ -152,8 +152,10 @@ void draw_survivors() {
     pthread_mutex_lock(&survivors->lock);
     Node *node = survivors->head;
     while (node != NULL) {
-        Survivor *s = (Survivor *)node->data;
-        draw_cell(s->coord.x, s->coord.y, RED);  // Waiting for help
+        Survivor *s = *(Survivor **)node->data;
+        if (s) {
+            draw_cell(s->coord.x, s->coord.y, RED);  // Waiting for help
+        }
         node = node->next;
     }
     pthread_mutex_unlock(&survivors->lock);
@@ -162,8 +164,10 @@ void draw_survivors() {
     pthread_mutex_lock(&helpedsurvivors->lock);
     node = helpedsurvivors->head;
     while (node != NULL) {
-        Survivor *s = (Survivor *)node->data;
-        draw_cell(s->coord.x, s->coord.y, PURPLE);  // Already helped
+        Survivor *s = *(Survivor **)node->data;
+        if (s) {
+            draw_cell(s->coord.x, s->coord.y, PURPLE);  // Already helped
+        }
         node = node->next;
     }
     pthread_mutex_unlock(&helpedsurvivors->lock);

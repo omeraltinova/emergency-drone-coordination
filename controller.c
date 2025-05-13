@@ -28,7 +28,7 @@ void cleanup_and_exit() {
     cleanup_has_run = true; // Set the flag
     
     running = 0; // Signal all threads to stop
-    printf("Cleanup: Signaled threads to stop & initiated cleanup sequence.\n"); // Modified message
+    printf("Cleanup: Signaled threads to stop & initiated cleanup sequence.\n");
 
     // Join AI thread
     if (ai_thread_id != 0) {
@@ -43,6 +43,11 @@ void cleanup_and_exit() {
         pthread_join(survivor_thread_id, NULL);
         printf("Cleanup: Survivor Generator thread joined.\n");
     }
+
+    // Clean up drone resources and threads AFTER other threads are joined
+    printf("Cleanup: Cleaning up drone fleet and threads...\n");
+    cleanup_drones(); // Ensure this is called
+    printf("Cleanup: Drone fleet and threads cleanup complete.\n");
 
     printf("Cleaning up resources...\n");
     if (survivors) survivors->destroy(survivors);
@@ -68,14 +73,14 @@ int main() {
     printf("Starting Drone Simulator...\n");
     
     // Initialize global lists with error checking
-    survivors = create_list(sizeof(Survivor), 1000);
+    survivors = create_list(sizeof(Survivor*), 1000);
     if (!survivors) {
         fprintf(stderr, "Failed to create survivors list\n");
         cleanup_and_exit();
         return 1;
     }
     
-    helpedsurvivors = create_list(sizeof(Survivor), 1000);
+    helpedsurvivors = create_list(sizeof(Survivor*), 1000);
     if (!helpedsurvivors) {
         fprintf(stderr, "Failed to create helped survivors list\n");
         cleanup_and_exit();
