@@ -12,7 +12,6 @@
 
 #include <time.h>
 #include <pthread.h>
-#include <semaphore.h>
 
 
 typedef struct node {
@@ -36,8 +35,8 @@ typedef struct list {
     Node *free_list;
 
     pthread_mutex_t lock;        // Mutex for general list operations
-    sem_t elements_sem;          // Semaphore for tracking number of elements
-    sem_t capacity_sem;         // Semaphore for tracking available capacity
+    pthread_cond_t not_empty_cv; // CV for when list is not empty (replaces elements_sem)
+    pthread_cond_t not_full_cv;  // CV for when list is not full (replaces capacity_sem)
     
     /*ops on the list*/
     Node *(*add)(struct list *list, void *data);

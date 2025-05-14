@@ -79,7 +79,8 @@ void *survivor_generator(void *args) {
         
         // Check running flag before sleep to allow quicker exit
         if (!running) break;
-        sleep(rand() % 3 + 2);  // Generate every 2-5 seconds
+        //sleep(rand() % 3 + 2);  // Generate every 2-5 seconds
+        sleep(1);
     }
     printf("Survivor generator exiting.\n");
     fflush(stdout); // Ensure output is flushed before thread truly exits

@@ -16,7 +16,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-#include <semaphore.h>
 
 
 /**
@@ -52,17 +51,17 @@ List *create_list(size_t datasize, int capacity) {
         return NULL;
     }
     
-    if (sem_init(&list->elements_sem, 0, 0) != 0) {
-        perror("Elements semaphore initialization failed");
+    if (pthread_cond_init(&list->not_empty_cv, NULL) != 0) {
+        perror("Not-empty CV initialization failed");
         pthread_mutex_destroy(&list->lock);
         free(list->startaddress);
         free(list);
         return NULL;
     }
     
-    if (sem_init(&list->capacity_sem, 0, capacity) != 0) {
-        perror("Capacity semaphore initialization failed");
-        sem_destroy(&list->elements_sem);
+    if (pthread_cond_init(&list->not_full_cv, NULL) != 0) {
+        perror("Not-full CV initialization failed");
+        pthread_cond_destroy(&list->not_empty_cv);
         pthread_mutex_destroy(&list->lock);
         free(list->startaddress);
         free(list);
@@ -124,14 +123,16 @@ static Node *find_memcell_fornode(List *list) {
 Node *add(List *list, void *data) {
     Node *node = NULL;
 
-    // Wait for available capacity
-    if (sem_wait(&list->capacity_sem) != 0) {
-        perror("sem_wait failed on capacity_sem");
-        return NULL;
-    }
-
-    // Lock the list for modification
     pthread_mutex_lock(&list->lock);
+
+    // Wait while the list is full
+    while (list->number_of_elements >= list->capacity) {
+        if (pthread_cond_wait(&list->not_full_cv, &list->lock) != 0) {
+            perror("pthread_cond_wait failed on not_full_cv");
+            pthread_mutex_unlock(&list->lock);
+            return NULL;
+        }
+    }
 
     /*first find an unoccupied memcell and insert into it*/
     node = find_memcell_fornode(list);
@@ -156,12 +157,15 @@ Node *add(List *list, void *data) {
             list->tail = list->head;
         }
 
-        // Signal that a new element is available
-        sem_post(&list->elements_sem);
+        // Signal that the list is no longer empty
+        pthread_cond_signal(&list->not_empty_cv);
     } else {
-        // If we couldn't find a node, return the capacity semaphore
-        sem_post(&list->capacity_sem);
-        perror("list is full!");
+        // This case should ideally not be reached if capacity check is correct
+        // and find_memcell_fornode is robust.
+        // If it's reached, it implies an issue with find_memcell_fornode or logic.
+        // No element was added, so no need to signal not_empty_cv.
+        // We don't signal not_full_cv either because we didn't consume capacity due to error.
+        perror("list is full or failed to find memory cell (unexpected in add after capacity check)");
     }
 
     pthread_mutex_unlock(&list->lock);
@@ -210,7 +214,8 @@ int removedata(List *list, void *data) {
         temp->occupied = 0;
         
         list->number_of_elements--;
-        sem_post(&list->capacity_sem);  // Return capacity
+        // Signal that the list is no longer full
+        pthread_cond_signal(&list->not_full_cv);
         result = 0;  // Success
     }
     
@@ -230,35 +235,40 @@ void *pop(List *list, void *dest) {
         return NULL;
     }
 
-    // Wait for an element to be available
-    if (sem_wait(&list->elements_sem) != 0) {
-        perror("sem_wait failed on elements_sem");
-        return NULL;
+    pthread_mutex_lock(&list->lock);
+
+    // Wait while the list is empty
+    while (list->number_of_elements == 0) {
+        if (pthread_cond_wait(&list->not_empty_cv, &list->lock) != 0) {
+            perror("pthread_cond_wait failed on not_empty_cv");
+            pthread_mutex_unlock(&list->lock);
+            return NULL;
+        }
     }
 
-    pthread_mutex_lock(&list->lock);
-    void *result = NULL;
+    void *result_data = NULL;
 
     if (list->head != NULL) {
         // Copy data before removing node
         memcpy(dest, list->head->data, list->datasize);
         
-        // Remove the node
-        if (removenode(list, list->head) == 0) {
-            result = dest;
-            // Signal that capacity is available
-            sem_post(&list->capacity_sem);
+        // Remove the node (removenode itself doesn't handle CVs or number_of_elements)
+        if (removenode(list, list->head) == 0) { // removenode updates links and occupied status
+            // list->number_of_elements is decremented inside removenode now
+            result_data = dest;
+            // Signal that the list is no longer full
+            pthread_cond_signal(&list->not_full_cv);
         } else {
-            // If removal failed, signal back to elements semaphore
-            sem_post(&list->elements_sem);
+            // Should not happen if list->head was not NULL and list not empty
+            perror("removenode failed unexpectedly in pop");
         }
     } else {
-        // No elements available, signal back to elements semaphore
-        sem_post(&list->elements_sem);
+         // This case should not be reached if the while loop for not_empty_cv is correct
+        perror("List became empty unexpectedly after wait in pop");
     }
 
     pthread_mutex_unlock(&list->lock);
-    return result;
+    return result_data;
 }
 /**
  * @brief returns the data stored in the head of the list
@@ -287,7 +297,7 @@ void *peek(List *list) {
  */
 int removenode(List *list, Node *node) {
     // Note: This function assumes the list mutex is ALREADY locked by the caller
-    // since it's only called from other synchronized functions
+    // since it's only called from other synchronized functions (pop, removedata)
     
     if (node != NULL) {
         Node *prevnode = node->prev;
@@ -307,7 +317,7 @@ int removenode(List *list, Node *node) {
         node->occupied = 0;
 
         // Update list metadata
-        list->number_of_elements--;
+        list->number_of_elements--; // Decrement happens here now
 
         // Update head/tail pointers
         if (node == list->tail) {
@@ -333,8 +343,8 @@ int removenode(List *list, Node *node) {
 void destroy(List *list) {
     // Clean up synchronization primitives
     pthread_mutex_destroy(&list->lock);
-    sem_destroy(&list->elements_sem);
-    sem_destroy(&list->capacity_sem);
+    pthread_cond_destroy(&list->not_empty_cv);
+    pthread_cond_destroy(&list->not_full_cv);
 
     // Free allocated memory
     free(list->startaddress);
