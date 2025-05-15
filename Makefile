@@ -1,11 +1,11 @@
 #TODO edit make file for your project
 CC = gcc
-CFLAGS = -Wall -pthread -I.
-LDFLAGS = -lSDL2 -lm
+CFLAGS = -Wall -pthread -I. $(shell sdl2-config --cflags)
+LDFLAGS = $(shell sdl2-config --libs) -lm
 
-ifeq ($(shell uname -s), Darwin)
-	LDFLAGS = -F/Library/Frameworks -framework SDL2
-endif
+#ifeq ($(shell uname -s), Darwin)
+#	LDFLAGS = -F/Library/Frameworks -framework SDL2
+#endif
 
 SRCS = list.c view.c survivor.c controller.c drone.c map.c ai.c
 OBJS = $(SRCS:.c=.o)

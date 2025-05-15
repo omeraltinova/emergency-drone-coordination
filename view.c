@@ -1,5 +1,5 @@
 #include "headers/view.h"
-#include <SDL2/SDL.h>
+#include <SDL.h>
 #include <stdio.h>
 
 #include "headers/drone.h"
