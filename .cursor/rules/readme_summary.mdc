@@ -1,0 +1,62 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Proje Özeti: Acil Durum Drone Koordinasyon Sistemi
+
+Bu proje, simüle edilmiş bir ortamdan, dronların (istemciler) hayatta kalanlara acil yardım koordine etmek üzere merkezi bir sunucuyla iletişim kurduğu gerçek bir istemci-sunucu sistemine geçişi amaçlamaktadır. Proje, [README.md](mdc:README.md) dosyasında detaylandırılmıştır.
+
+## Temel Hedefler
+- Thread senkronizasyonu, güvenli veri yapıları ve ağ iletişimi uygulamak.
+- Gerçek dünya drone sürüsü koordinasyon sistemlerini modellemek.
+
+## Aşamalı Uygulama Planı
+
+### Faz 1: Thread-Güvenli Listeler ve Simüle Edilmiş İstemciler/Sunucular
+- **Amaç**: Senkronizasyonu uygulamak ve thread'leri kullanarak istemci-sunucu etkileşimlerini simüle etmek (soket yok).
+- **İlgili Dosyalar**: [list.h](mdc:list.h), [list.c](mdc:list.c)
+- **Görevler**: `List` yapısına `pthread_mutex_t` eklenmesi, drone ve hayatta kalanların thread'lerle simülasyonu, SDL ile görselleştirme ([view.c](mdc:view.c)).
+
+### Faz 2: Temel Soket İletişimi
+- **Amaç**: Simüle edilmiş thread'leri gerçek soket tabanlı istemciler ve sunucularla değiştirmek.
+- **İletişim Protokolü**: [communication-protocol.md](mdc:communication-protocol.md) dosyasına bakınız.
+- **Görevler**:
+    - Çoklu thread'li sunucu ([server.c](mdc:server.c)) uygulaması: Gelen drone bağlantılarını (TCP) dinler.
+    - Drone istemci ([drone.c](mdc:drone.c)) uygulaması: Sunucuya bağlanır, periyodik JSON durum güncellemeleri gönderir.
+    - Yapay Zeka Kontrolcü Mantığı ([controller.c](mdc:controller.c) içinde olabilir): En yakın boş dronu en eski hayatta kalana atar.
+
+### Faz 3: Gelişmiş Özellikler ve Test Etme
+- **Amaç**: Performansı optimize etmek ve uç durumları ele almak.
+- **Görevler**:
+    - Yük testi (50+ drone).
+    - Hata toleransı (bağlantısı kesilen dronlar).
+    - İsteğe bağlı eklentiler: Web tabanlı gösterge paneli, QoS.
+
+## Teknik Bileşenler
+
+### İstemci (Drone) - [drone.c](mdc:drone.c)
+- `connect_to_server()`: TCP bağlantısı kurar.
+- `send_status_update()`: Drone durumunu periyodik olarak raporlar (JSON).
+- `navigate_to_target()`: Hayatta kalanın koordinatlarına doğru hareketi simüle eder.
+
+### Sunucu - [server.c](mdc:server.c), [controller.c](mdc:controller.c)
+- `handle_drone()`: Her drone bağlantısını yöneten thread.
+- `assign_missions()`: Dronları ve hayatta kalanları eşleştiren yapay zeka mantığı.
+- `log_performance()`: Ortalama bekleme süresi ve drone kullanımını izler.
+
+### İletişim Protokolü - [communication-protocol.md](mdc:communication-protocol.md)
+- **Mesajlar**: `STATUS_UPDATE`, `MISSION_COMPLETE` (Drone → Sunucu); `ASSIGN_MISSION`, `HEARTBEAT` (Sunucu → Drone).
+- **Format**: JSON.
+
+## Temel Teknolojiler ve Beceriler
+- C programlama dili
+- Thread senkronizasyonu (mutex'ler)
+- Soket programlama (TCP)
+- İstemci-Sunucu mimarisi
+- JSON veri formatı
+- SDL2 ile görselleştirme ([view.c](mdc:view.c))
+
+## Diğer Önemli Dosyalar
+- [Makefile](mdc:Makefile): Projenin derlenmesi için.
+
