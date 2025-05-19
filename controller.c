@@ -1,4 +1,5 @@
-// controller.c
+// Bu dosya eski merkezi kontrol içindir ve yeni mimaride kullanılmaz.
+
 #include "headers/globals.h"
 #include "headers/map.h"
 #include "headers/drone.h"

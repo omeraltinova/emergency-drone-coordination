@@ -33,7 +33,7 @@ void *survivor_generator(void *args) {
     srand(time(NULL));
     printf("Survivor generator started\n");
 
-    while (running) {
+    while (1) { // Thread iptal edilene kadar çalışır
         // Generate random survivor
         Coord coord = {.x = rand() % map.height,  // Changed from width to height
                       .y = rand() % map.width};   // Changed from height to width

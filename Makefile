@@ -1,25 +1,23 @@
-#TODO edit make file for your project
+#TODO edit# Makefile for Emergency Drone Coordination System - Phase 2
+
 CC = gcc
-CFLAGS = -Wall -pthread -I. $(shell sdl2-config --cflags)
-LDFLAGS = $(shell sdl2-config --libs) -lm
+CFLAGS = -Wall -g -Iheaders -IcJSON
+LDFLAGS = -lpthread
 
-#ifeq ($(shell uname -s), Darwin)
-#	LDFLAGS = -F/Library/Frameworks -framework SDL2
-#endif
+CC = gcc
+CFLAGS = -Wall -g -Iheaders -IcJSON
+LDFLAGS = -lpthread -lSDL2
 
-SRCS = list.c view.c survivor.c controller.c drone.c map.c ai.c
-OBJS = $(SRCS:.c=.o)
-TARGET = drone_simulator
+all: server drone_client
 
-all: $(TARGET)
+server: server.c globals.c list.c map.c survivor.c view.c cJSON/cJSON.c \
+        headers/server.h headers/list.h headers/map.h headers/survivor.h headers/view.h
+	$(CC) $(CFLAGS) server.c globals.c list.c map.c survivor.c view.c cJSON/cJSON.c $(LDFLAGS) -o server
 
-$(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
-
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+drone_client: drone_client.c ai.c globals.c cJSON/cJSON.c headers/drone_client.h headers/ai.h
+	$(CC) $(CFLAGS) drone_client.c ai.c globals.c cJSON/cJSON.c $(LDFLAGS) -o drone_client
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f *.o server drone_client
 
 .PHONY: all clean

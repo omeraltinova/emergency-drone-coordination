@@ -1,4 +1,12 @@
 #include "headers/ai.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+// Bu dosya sadece drone_client ile birlikte kullanılacak şekilde sadeleştirildi.
+// Her drone kendi AI fonksiyonunu burada çağırır.
+// Sunucu tarafında kullanılmaz.
+
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>

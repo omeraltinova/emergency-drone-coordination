@@ -1,4 +1,6 @@
-## **Detailed communication protocol** 
+## **Detailed communication protocol**
+
+> **Not:** Bu protokol Phase 2'de tam olarak uygulanmıştır. Tüm istemci-sunucu iletişimi cJSON ile ve burada belirtilen formatta gerçekleşmektedir.
 
 To standardize interactions between drones (clients) and the server, you should implement the following protocol. 
 - This protocol ensures interoperability between your projects while leaving room for custom AI logic (e.g., mission prioritization). You can extend it with optional fields like `emergency_level` or `weather_conditions`.
