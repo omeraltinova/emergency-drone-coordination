@@ -1,4 +1,5 @@
-#include "headers/drone.h"
+// Bu dosya eski thread tabanlı simülasyon içindir ve yeni mimaride kullanılmaz.
+
 #include "headers/globals.h"
 #include <stdbool.h> // For true/false
 #include <stdlib.h>

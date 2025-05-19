@@ -1,7 +1,7 @@
 #ifndef VIEW_H
 #define VIEW_H
 
-#include <SDL.h>
+#include <SDL2/SDL.h>
 
 // SDL globals
 extern SDL_Window* window;

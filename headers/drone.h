@@ -16,6 +16,7 @@ typedef enum {
 
 typedef struct drone {
     int id;
+    int sockfd;    // client socket descriptor for sending missions
     pthread_t thread_id;
     int status;             // IDLE, ON_MISSION, DISCONNECTED
     Coord coord;

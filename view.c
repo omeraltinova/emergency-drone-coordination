@@ -1,5 +1,5 @@
 #include "headers/view.h"
-#include <SDL.h>
+#include <SDL2/SDL.h>
 #include <stdio.h>
 
 #include "headers/drone.h"
@@ -115,72 +115,60 @@ void draw_target_marker(int x, int y) {
 }
 
 void draw_drones() {
-    for (int i = 0; i < num_drones; i++) {
-        pthread_mutex_lock(&drone_fleet[i].lock);
-        
-        // Draw drone
-        SDL_Color color = (drone_fleet[i].status == IDLE) ? BLUE : GREEN;
-        draw_cell(drone_fleet[i].coord.x, drone_fleet[i].coord.y, color);
-
-        // Draw mission line and target if on mission
-        if (drone_fleet[i].status == ON_MISSION) {
-            // Draw line to target
+    // Yeni: merkezi List *drones yapısını kullan
+    extern List *drones;
+    if (!drones) return;
+    pthread_mutex_lock(&drones->lock);
+    Node *node = drones->head;
+    while (node) {
+        Drone *drone = *(Drone **)node->data;
+        if (!drone) { node = node->next; continue; }
+        SDL_Color color = (drone->status == IDLE) ? BLUE : GREEN;
+        draw_cell(drone->coord.x, drone->coord.y, color);
+        draw_target_marker(drone->target.x, drone->target.y);
+        // Draw line to target if on mission
+        if (drone->status == ON_MISSION) {
             SDL_SetRenderDrawColor(renderer, GREEN.r, GREEN.g, GREEN.b, GREEN.a);
-            SDL_RenderDrawLine(
-                renderer,
-                drone_fleet[i].coord.y * CELL_SIZE + CELL_SIZE / 2,
-                drone_fleet[i].coord.x * CELL_SIZE + CELL_SIZE / 2,
-                drone_fleet[i].target.y * CELL_SIZE + CELL_SIZE / 2,
-                drone_fleet[i].target.x * CELL_SIZE + CELL_SIZE / 2);
-            
-            // Draw target marker
-            draw_target_marker(drone_fleet[i].target.x, drone_fleet[i].target.y);
-            
-            // Draw drone ID
-            char id_str[4];
-            snprintf(id_str, sizeof(id_str), "%d", drone_fleet[i].id);
-            SDL_SetRenderDrawColor(renderer, WHITE.r, WHITE.g, WHITE.b, WHITE.a);
-            // Note: In a real implementation, you'd use SDL_ttf for text rendering
+            int x1 = drone->coord.y * CELL_SIZE + CELL_SIZE/2;
+            int y1 = drone->coord.x * CELL_SIZE + CELL_SIZE/2;
+            int x2 = drone->target.y * CELL_SIZE + CELL_SIZE/2;
+            int y2 = drone->target.x * CELL_SIZE + CELL_SIZE/2;
+            SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
         }
-        
-        pthread_mutex_unlock(&drone_fleet[i].lock);
+        node = node->next;
     }
-}
+    pthread_mutex_unlock(&drones->lock);
+} // draw_drones sonu
 
 void draw_survivors() {
-    // Draw survivors from global lists
-    pthread_mutex_lock(&survivors->lock);
-    Node *node = survivors->head;
-    while (node != NULL) {
-        Survivor *s = *(Survivor **)node->data;
-        if (s) {
-            draw_cell(s->coord.x, s->coord.y, RED);  // Waiting for help
+    // Yeni: merkezi List *survivors ve List *helpedsurvivors kullan
+    extern List *survivors;
+    extern List *helpedsurvivors;
+    if (survivors) {
+        pthread_mutex_lock(&survivors->lock);
+        Node *node = survivors->head;
+        while (node) {
+            Survivor *s = *(Survivor **)node->data;
+            if (!s) { node = node->next; continue; }
+            SDL_Color color = (s->status == 0) ? RED : ORANGE;
+            draw_cell(s->coord.x, s->coord.y, color);
+            node = node->next;
         }
-        node = node->next;
+        pthread_mutex_unlock(&survivors->lock);
     }
-    pthread_mutex_unlock(&survivors->lock);
-    
-    // Draw helped survivors
-    pthread_mutex_lock(&helpedsurvivors->lock);
-    node = helpedsurvivors->head;
-    while (node != NULL) {
-        Survivor *s = *(Survivor **)node->data;
-        if (s) {
-            draw_cell(s->coord.x, s->coord.y, PURPLE);  // Already helped
+    if (helpedsurvivors) {
+        pthread_mutex_lock(&helpedsurvivors->lock);
+        Node *node = helpedsurvivors->head;
+        while (node) {
+            Survivor *s = *(Survivor **)node->data;
+            if (!s) { node = node->next; continue; }
+            draw_cell(s->coord.x, s->coord.y, PURPLE);
+            node = node->next;
         }
-        node = node->next;
+        pthread_mutex_unlock(&helpedsurvivors->lock);
     }
-    pthread_mutex_unlock(&helpedsurvivors->lock);
-    
-    // Draw survivors being helped (those with assigned drones)
-    for (int i = 0; i < num_drones; i++) {
-        pthread_mutex_lock(&drone_fleet[i].lock);
-        if (drone_fleet[i].status == ON_MISSION) {
-            draw_cell(drone_fleet[i].target.x, drone_fleet[i].target.y, ORANGE);
-        }
-        pthread_mutex_unlock(&drone_fleet[i].lock);
-    }
-}
+} // draw_survivors sonu
+
 
 void draw_grid() {
     SDL_SetRenderDrawColor(renderer, WHITE.r, WHITE.g, WHITE.b,
