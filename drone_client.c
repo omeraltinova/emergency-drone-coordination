@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <signal.h>
 #include "cJSON/cJSON.h"
 
 #define SERVER_IP "127.0.0.1"
@@ -69,6 +70,8 @@ void mission_complete(int sockfd, const char* drone_id, const char* mission_id) 
 }
 
 int main(int argc, char *argv[]) {
+    // Ignore SIGPIPE so send() errors don't terminate process
+    signal(SIGPIPE, SIG_IGN);
     int sockfd;
     struct sockaddr_in serv_addr;
     char buffer[BUFFER_SIZE];
@@ -89,13 +92,37 @@ int main(int argc, char *argv[]) {
         printf("[DRONE] Server: %s\n", cJSON_Print(msg));
         cJSON_Delete(msg);
     }
-    // Example: send status updates and listen for missions
-    for (int i = 0; i < 5; ++i) {
-        status_update(sockfd, drone_id, 10+i, 20+i, "idle", 100-i*5, 5);
-        sleep(2);
+    // idle starting position
+    int x = 0, y = 0;
+    // send initial status
+    status_update(sockfd, drone_id, x, y, "idle", 100, 1);
+    // mission loop
+    while (1) {
+        cJSON *msg = recv_json(sockfd, buffer, sizeof(buffer));
+        if (!msg) {
+            // No message or parse error, wait for assignment
+            sleep(1);
+            continue;
+        }
+        const char *type = cJSON_GetObjectItem(msg, "type")->valuestring;
+        if (strcmp(type, "MISSION_ASSIGN") == 0) {
+            int tx = cJSON_GetObjectItem(msg, "x")->valueint;
+            int ty = cJSON_GetObjectItem(msg, "y")->valueint;
+            printf("[DRONE] Received MISSION_ASSIGN to (%d,%d)\n", tx, ty);
+            // move step by step
+            while (x != tx || y != ty) {
+                if (x < tx) x++; else if (x > tx) x--;
+                if (y < ty) y++; else if (y > ty) y--;
+                status_update(sockfd, drone_id, x, y, "on_mission", 100, 1);
+                sleep(1);
+            }
+            // arrived
+            mission_complete(sockfd, drone_id, "0");
+            printf("[DRONE] Mission complete, reporting\n");
+            status_update(sockfd, drone_id, x, y, "idle", 100, 1);
+        }
+        cJSON_Delete(msg);
     }
-    // Example: mission complete
-    mission_complete(sockfd, drone_id, "M123");
     close(sockfd);
     return 0;
 }

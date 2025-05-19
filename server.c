@@ -75,15 +75,47 @@ void handle_status_update(int client_sock, cJSON *msg) {
     printf("[SERVER] STATUS_UPDATE from drone_id: %s, status: %s\n",
         cJSON_GetObjectItem(msg, "drone_id")->valuestring,
         cJSON_GetObjectItem(msg, "status")->valuestring);
-    // Update drone status in list
-    // (Implementation: update drone info by drone_id)
+    // Update drone status and position in list
+    const char *idstr = cJSON_GetObjectItem(msg, "drone_id")->valuestring;
+    int id = atoi(idstr);
+    cJSON *loc = cJSON_GetObjectItem(msg, "location");
+    int x = cJSON_GetObjectItem(loc, "x")->valueint;
+    int y = cJSON_GetObjectItem(loc, "y")->valueint;
+    const char *st = cJSON_GetObjectItem(msg, "status")->valuestring;
+    pthread_mutex_lock(&drones_mutex);
+    for (Node *n = drones->head; n; n = n->next) {
+        Drone *d = *(Drone **)n->data;
+        if (d->id == id) {
+            pthread_mutex_lock(&d->lock);
+            d->coord.x = x;
+            d->coord.y = y;
+            if (strcmp(st, "idle") == 0) d->status = IDLE;
+            else if (strcmp(st, "on_mission") == 0) d->status = ON_MISSION;
+            pthread_mutex_unlock(&d->lock);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&drones_mutex);
 }
 
 void handle_mission_complete(int client_sock, cJSON *msg) {
     printf("[SERVER] MISSION_COMPLETE from drone_id: %s, mission_id: %s\n",
         cJSON_GetObjectItem(msg, "drone_id")->valuestring,
         cJSON_GetObjectItem(msg, "mission_id")->valuestring);
-    // Mark mission as complete, update survivor list
+    // Mark mission complete: set drone to IDLE
+    const char *idstr = cJSON_GetObjectItem(msg, "drone_id")->valuestring;
+    int id = atoi(idstr);
+    pthread_mutex_lock(&drones_mutex);
+    for (Node *n = drones->head; n; n = n->next) {
+        Drone *d = *(Drone **)n->data;
+        if (d->id == id) {
+            pthread_mutex_lock(&d->lock);
+            d->status = IDLE;
+            pthread_mutex_unlock(&d->lock);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&drones_mutex);
 }
 
 void handle_heartbeat_response(int client_sock, cJSON *msg) {
@@ -97,9 +129,14 @@ void* client_handler(void* arg) {
     free(arg);
     printf("[SERVER] New client connected, socket: %d\n", client_sock);
     char buffer[BUFFER_SIZE];
-    while (1) {
+    while (running) {
+        // receive JSON message
         cJSON *msg = recv_json(client_sock, buffer, sizeof(buffer));
-        if (!msg) break;
+        if (!msg) {
+            // no complete message, wait
+            sleep(1);
+            continue;
+        }
         const char *type = cJSON_GetObjectItem(msg, "type")->valuestring;
         if (strcmp(type, "HANDSHAKE") == 0) {
             handle_handshake(client_sock, msg);
@@ -119,7 +156,7 @@ void* client_handler(void* arg) {
         }
         cJSON_Delete(msg);
     }
-    printf("[SERVER] Client disconnected, socket: %d\n", client_sock);
+    printf("[SERVER] Client handler exiting, socket: %d\n", client_sock);
     close(client_sock);
     pthread_exit(NULL);
 }
@@ -143,9 +180,12 @@ int main() {
     socklen_t client_len = sizeof(client_addr);
     pthread_t tid;
 
-    drones = create_list(sizeof(Drone), 128);
-    survivors = create_list(sizeof(Survivor), 128);
-    helpedsurvivors = create_list(sizeof(Survivor), 128);
+    // Store pointers to Drone
+    drones = create_list(sizeof(Drone*), 128);
+    // Store pointers to Survivor
+    survivors = create_list(sizeof(Survivor*), 128);
+    // Store pointers to Survivor for helped list
+    helpedsurvivors = create_list(sizeof(Survivor*), 128);
     // Initialize map dimensions (height, width)
     init_map(20, 20);
 
@@ -191,11 +231,23 @@ int main() {
 // AI assigns survivors to idle drones
 void *ai_controller(void *arg) {
     while (running) {
-        // get a survivor
+        // wait until at least one drone connected
+        pthread_mutex_lock(&drones_mutex);
+        if (!drones->head) {
+            pthread_mutex_unlock(&drones_mutex);
+            sleep(1);
+            continue;
+        }
+        pthread_mutex_unlock(&drones_mutex);
+        // get the oldest survivor (tail)
         Survivor *s = NULL;
         pthread_mutex_lock(&survivors_mutex);
-        Node *n = survivors->head;
-        if (n) { s = *(Survivor**)n->data; survivors->pop(survivors,NULL); }
+        Node *n = survivors->tail;
+        if (n) {
+            s = *(Survivor**)n->data;
+            // remove that node
+            survivors->removenode(survivors, n);
+        }
         pthread_mutex_unlock(&survivors_mutex);
         if (!s) { sleep(1); continue; }
         // find closest idle drone
@@ -213,6 +265,7 @@ void *ai_controller(void *arg) {
         pthread_mutex_unlock(&drones_mutex);
         if (best) {
             // send mission
+            printf("[AI] Assigning survivor at (%d,%d) to drone %d\n", s->coord.x, s->coord.y, best->id);
             cJSON *js=cJSON_CreateObject();
             cJSON_AddStringToObject(js,"type","MISSION_ASSIGN");
             cJSON_AddNumberToObject(js,"x",s->coord.x);
@@ -223,6 +276,7 @@ void *ai_controller(void *arg) {
             pthread_mutex_unlock(&best->lock);
             helpedsurvivors->add(helpedsurvivors,&s);
         } else {
+            printf("[AI] No idle drone available for survivor at (%d,%d), requeue\n", s->coord.x, s->coord.y);
             pthread_mutex_lock(&survivors_mutex);
             survivors->add(survivors,&s);
             pthread_mutex_unlock(&survivors_mutex);

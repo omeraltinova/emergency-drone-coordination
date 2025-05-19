@@ -126,6 +126,15 @@ void draw_drones() {
         SDL_Color color = (drone->status == IDLE) ? BLUE : GREEN;
         draw_cell(drone->coord.x, drone->coord.y, color);
         draw_target_marker(drone->target.x, drone->target.y);
+        // Draw line to target if on mission
+        if (drone->status == ON_MISSION) {
+            SDL_SetRenderDrawColor(renderer, GREEN.r, GREEN.g, GREEN.b, GREEN.a);
+            int x1 = drone->coord.y * CELL_SIZE + CELL_SIZE/2;
+            int y1 = drone->coord.x * CELL_SIZE + CELL_SIZE/2;
+            int x2 = drone->target.y * CELL_SIZE + CELL_SIZE/2;
+            int y2 = drone->target.x * CELL_SIZE + CELL_SIZE/2;
+            SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+        }
         node = node->next;
     }
     pthread_mutex_unlock(&drones->lock);
