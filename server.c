@@ -12,15 +12,14 @@
 #include "headers/drone.h"
 #include "headers/list.h"
 #include "headers/survivor.h"
-#include "headers/survivor.h"
 #include "headers/map.h"
 #include "headers/view.h"
 #include "headers/globals.h"
 #include <signal.h>
 #include <SDL2/SDL.h>
-#include "headers/view.h"
 #include "headers/ai.h"
 #include <limits.h>
+#include <ctype.h>
 
 #define SERVER_PORT 5000
 #define MAX_CLIENTS 32
@@ -53,7 +52,9 @@ void handle_handshake(int client_sock, cJSON *msg) {
     printf("[SERVER] HANDSHAKE received from drone_id: %s\n", cJSON_GetObjectItem(msg, "drone_id")->valuestring);
     // Register drone, add to drone list
     const char *idstr = cJSON_GetObjectItem(msg, "drone_id")->valuestring;
-    int id = atoi(idstr);
+    int id = 0;
+    if ((idstr[0] == 'd' || idstr[0] == 'D') && idstr[1]) id = atoi(idstr + 1);
+    else id = atoi(idstr);
     Drone *d = malloc(sizeof(Drone));
     memset(d,0,sizeof(Drone));
     d->id = id; d->sockfd = client_sock; d->status = IDLE;
@@ -77,7 +78,9 @@ void handle_status_update(int client_sock, cJSON *msg) {
         cJSON_GetObjectItem(msg, "status")->valuestring);
     // Update drone status and position in list
     const char *idstr = cJSON_GetObjectItem(msg, "drone_id")->valuestring;
-    int id = atoi(idstr);
+    int id = 0;
+    if ((idstr[0] == 'd' || idstr[0] == 'D') && idstr[1]) id = atoi(idstr + 1);
+    else id = atoi(idstr);
     cJSON *loc = cJSON_GetObjectItem(msg, "location");
     int x = cJSON_GetObjectItem(loc, "x")->valueint;
     int y = cJSON_GetObjectItem(loc, "y")->valueint;
@@ -104,7 +107,9 @@ void handle_mission_complete(int client_sock, cJSON *msg) {
         cJSON_GetObjectItem(msg, "mission_id")->valuestring);
     // Mark mission complete: set drone to IDLE
     const char *idstr = cJSON_GetObjectItem(msg, "drone_id")->valuestring;
-    int id = atoi(idstr);
+    int id = 0;
+    if ((idstr[0] == 'd' || idstr[0] == 'D') && idstr[1]) id = atoi(idstr + 1);
+    else id = atoi(idstr);
     pthread_mutex_lock(&drones_mutex);
     for (Node *n = drones->head; n; n = n->next) {
         Drone *d = *(Drone **)n->data;
@@ -272,7 +277,8 @@ void *ai_controller(void *arg) {
             cJSON_AddNumberToObject(js,"y",s->coord.y);
             send_json(best->sockfd,js); cJSON_Delete(js);
             pthread_mutex_lock(&best->lock);
-            best->status=ON_MISSION; best->target=s->coord;
+            best->status=ON_MISSION; 
+            best->target = s->coord;
             pthread_mutex_unlock(&best->lock);
             helpedsurvivors->add(helpedsurvivors,&s);
         } else {

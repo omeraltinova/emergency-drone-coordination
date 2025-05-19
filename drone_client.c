@@ -109,10 +109,15 @@ int main(int argc, char *argv[]) {
             int tx = cJSON_GetObjectItem(msg, "x")->valueint;
             int ty = cJSON_GetObjectItem(msg, "y")->valueint;
             printf("[DRONE] Received MISSION_ASSIGN to (%d,%d)\n", tx, ty);
-            // move step by step
-            while (x != tx || y != ty) {
-                if (x < tx) x++; else if (x > tx) x--;
-                if (y < ty) y++; else if (y > ty) y--;
+            // move along X axis first
+            while (x != tx) {
+                if (x < tx) x++; else x--;
+                status_update(sockfd, drone_id, x, y, "on_mission", 100, 1);
+                sleep(1);
+            }
+            // then move along Y axis
+            while (y != ty) {
+                if (y < ty) y++; else y--;
                 status_update(sockfd, drone_id, x, y, "on_mission", 100, 1);
                 sleep(1);
             }
