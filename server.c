@@ -38,6 +38,10 @@ time_t last_msg_time;
 pthread_mutex_t drones_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t survivors_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Priority queue for uncompleted survivors on drone disconnect
+List *priority_survivors;
+pthread_mutex_t priority_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 // Forward declarations
 void* client_handler(void* arg);
 void* ui_thread(void* arg);
@@ -292,6 +296,9 @@ int main(int argc, char *argv[]) {
     survivors = create_list(sizeof(Survivor*), 128);
     // Store pointers to Survivor for helped list
     helpedsurvivors = create_list(sizeof(Survivor*), 128);
+    // initialize priority queue (same capacity as survivors list)
+    priority_survivors = create_list(sizeof(Survivor*), 128);
+    pthread_mutex_init(&priority_mutex, NULL);
     
     // Initialize map dimensions with configured values (height, width)
     init_map(config.map_height, config.map_width);
@@ -383,6 +390,7 @@ int main(int argc, char *argv[]) {
     destroy(drones);
     destroy(survivors);
     destroy(helpedsurvivors);
+    destroy(priority_survivors);
     return 0;
 }
 
@@ -397,17 +405,27 @@ void *ai_controller(void *arg) {
             continue;
         }
         pthread_mutex_unlock(&drones_mutex);
-        // get the oldest survivor (tail)
+        // try priority queue first
         Survivor *s = NULL;
-        pthread_mutex_lock(&survivors_mutex);
-        Node *n = survivors->tail;
-        if (n) {
-            s = *(Survivor**)n->data;
-            // remove that node
-            survivors->removenode(survivors, n);
+        pthread_mutex_lock(&priority_mutex);
+        // Get oldest orphan survivor (FIFO): use tail
+        Node *pn = priority_survivors->tail;
+        if (pn) {
+            s = *(Survivor**)pn->data;
+            priority_survivors->removenode(priority_survivors, pn);
         }
-        pthread_mutex_unlock(&survivors_mutex);
+        pthread_mutex_unlock(&priority_mutex);
+        if (!s) {
+            pthread_mutex_lock(&survivors_mutex);
+            Node *n = survivors->tail;
+            if (n) {
+                s = *(Survivor**)n->data;
+                survivors->removenode(survivors, n);
+            }
+            pthread_mutex_unlock(&survivors_mutex);
+        }
         if (!s) { sleep(1); continue; }
+
         // find closest idle drone
         Drone *best=NULL; int mind=INT_MAX;
         pthread_mutex_lock(&drones_mutex);
@@ -484,6 +502,17 @@ void* heartbeat_monitor(void *arg) {
                 d->missed_heartbeats++;
                 if (d->missed_heartbeats >= 3) {
                     printf("[SERVER] Drone %d missed 3 heartbeats, disconnecting\n", d->id);
+                    // requeue survivor mission from this drone, if any
+                    pthread_mutex_lock(&priority_mutex);
+                    for (Node* sn = helpedsurvivors->head; sn; sn = sn->next) {
+                        Survivor* sv = *(Survivor**)sn->data;
+                        if (sv->coord.x == d->target.x && sv->coord.y == d->target.y) {
+                            helpedsurvivors->removenode(helpedsurvivors, sn);
+                            priority_survivors->add(priority_survivors, &sv);
+                            break;
+                        }
+                    }
+                    pthread_mutex_unlock(&priority_mutex);
                     Node* to_remove = n;
                     n = n->next;
                     drones->removenode(drones, to_remove);

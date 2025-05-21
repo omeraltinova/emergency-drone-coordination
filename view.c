@@ -11,6 +11,8 @@
 // SDL globals
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
+// Include priority queue for disconnected missions
+extern List *priority_survivors;
 SDL_Event event;
 int window_width, window_height;
 
@@ -146,7 +148,18 @@ void draw_drones() {
 } // draw_drones sonu
 
 void draw_survivors() {
-    // Yeni: merkezi List *survivors ve List *helpedsurvivors kullan
+    // Yeni: merkezi List *priority_survivors, *survivors ve *helpedsurvivors kullan
+    // Draw priority survivors (orphans) in orange
+    if (priority_survivors) {
+        pthread_mutex_lock(&priority_survivors->lock);
+        Node *pn = priority_survivors->head;
+        while (pn) {
+            Survivor *sv = *(Survivor**)pn->data;
+            if (sv) draw_cell(sv->coord.x, sv->coord.y, ORANGE);
+            pn = pn->next;
+        }
+        pthread_mutex_unlock(&priority_survivors->lock);
+    }
     extern List *survivors;
     extern List *helpedsurvivors;
     if (survivors) {
@@ -155,8 +168,8 @@ void draw_survivors() {
         while (node) {
             Survivor *s = *(Survivor **)node->data;
             if (!s) { node = node->next; continue; }
-            SDL_Color color = (s->status == 0) ? RED : ORANGE;
-            draw_cell(s->coord.x, s->coord.y, color);
+            // Normal survivors in red
+            draw_cell(s->coord.x, s->coord.y, RED);
             node = node->next;
         }
         pthread_mutex_unlock(&survivors->lock);
