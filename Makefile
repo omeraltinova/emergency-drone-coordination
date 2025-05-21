@@ -1,14 +1,14 @@
 #TODO edit# Makefile for Emergency Drone Coordination System - Phase 2
 
 CC = gcc
-CFLAGS = -Wall -g -Iheaders -IcJSON $(shell pkg-config --cflags sdl2)
-LDFLAGS = -lpthread $(shell pkg-config --libs sdl2)
+CFLAGS = -Wall -g -Iheaders -IcJSON $(shell pkg-config --cflags sdl2) $(shell pkg-config --cflags SDL2_ttf)
+LDFLAGS = -lpthread $(shell pkg-config --libs sdl2) $(shell pkg-config --libs SDL2_ttf)
 
 all: server drone_client
 
-server: server.c globals.c list.c map.c survivor.c view.c server_config.c cJSON/cJSON.c \
-        headers/server.h headers/list.h headers/map.h headers/survivor.h headers/view.h
-	$(CC) $(CFLAGS) server.c globals.c list.c map.c survivor.c view.c server_config.c cJSON/cJSON.c $(LDFLAGS) -o server
+server: server.c globals.c list.c map.c survivor.c view.c server_config.c server_config_ui.c cJSON/cJSON.c \
+        headers/server.h headers/list.h headers/map.h headers/survivor.h headers/view.h headers/server_config.h headers/server_config_ui.h
+	$(CC) $(CFLAGS) server.c globals.c list.c map.c survivor.c view.c server_config.c server_config_ui.c cJSON/cJSON.c $(LDFLAGS) -o server
 
 drone_client: drone_client.c ai.c globals.c cJSON/cJSON.c headers/drone_client.h headers/ai.h
 	$(CC) $(CFLAGS) drone_client.c ai.c globals.c cJSON/cJSON.c $(LDFLAGS) -o drone_client

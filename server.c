@@ -16,6 +16,7 @@
 #include "headers/view.h"
 #include "headers/globals.h"
 #include "headers/server_config.h"
+#include "headers/server_config_ui.h"
 #include <signal.h>
 #include <SDL2/SDL.h>
 #include "headers/ai.h"
@@ -183,8 +184,8 @@ void *ui_thread(void *arg) {
 int main() {
     // Display welcome banner and get configuration
     print_server_banner();
-    ServerConfig config = get_server_config();
-    apply_server_config(config);
+    ServerConfig config = get_server_config_sdl();
+    apply_server_config_sdl(config);
 
     int server_sock, *client_sock;
     struct sockaddr_in server_addr, client_addr;
@@ -240,6 +241,22 @@ int main() {
     }
     
     printf("[SERVER] Listening on port %d...\n", config.port);
+
+    // ADDED: Drone launching logic moved here, after server is listening
+    printf("[SERVER] Launching %d drone clients...\n", config.max_drones);
+    for (int i = 0; i < config.max_drones; ++i) {
+        char command[128];
+        snprintf(command, sizeof(command), "./drone_client D%d &", i + 1);
+        printf("[SERVER] Executing: %s\n", command);
+        int ret = system(command);
+        if (ret == -1) {
+            perror("[SERVER] Failed to execute command");
+        } else if (WIFEXITED(ret) && WEXITSTATUS(ret) != 0) {
+            fprintf(stderr, "[SERVER] Command '%s' exited with status %d\n", command, WEXITSTATUS(ret));
+        }
+        usleep(100000); // 100ms delay
+    }
+    printf("[SERVER] Finished launching drone clients.\n\n");
 
     while (running) {
         // Handle SDL events on macOS
