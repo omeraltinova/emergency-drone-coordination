@@ -504,7 +504,8 @@ void* watchdog_thread(void *arg) {
         sleep(1);
         if (time(NULL) - last_msg_time >= 60) {
             printf("[SERVER] No drone activity for 60s, shutting down\n");
-            running = 0;
+            // terminate immediately to avoid threads accessing freed data
+            exit(EXIT_SUCCESS);
         }
     }
     return NULL;
