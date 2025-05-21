@@ -196,10 +196,24 @@ void *ui_thread(void *arg) {
     return NULL;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     // Display welcome banner and get configuration
     print_server_banner();
     ServerConfig config = get_server_config();
+    // Override map dimensions from command-line if provided
+    if (argc == 3) {
+        int w = atoi(argv[1]);
+        int h = atoi(argv[2]);
+        if (w > 0 && h > 0) {
+            config.map_width = w;
+            config.map_height = h;
+        } else {
+            fprintf(stderr, "Invalid map size. Using defaults.\n");
+        }
+    } else if (argc != 1) {
+        fprintf(stderr, "Usage: %s [map_width map_height]\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
     apply_server_config(config);
 
     int server_sock, *client_sock;
@@ -214,8 +228,8 @@ int main() {
     // Store pointers to Survivor for helped list
     helpedsurvivors = create_list(sizeof(Survivor*), 128);
     
-    // Initialize map dimensions with configured values
-    init_map(config.map_width, config.map_height);
+    // Initialize map dimensions with configured values (height, width)
+    init_map(config.map_height, config.map_width);
 
     #ifdef __APPLE__
     // On macOS, initialize SDL in the main thread
