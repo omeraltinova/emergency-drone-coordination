@@ -173,7 +173,7 @@ ServerConfig get_server_config_sdl() {
                     }
                     break;
 
-                case SDL_MOUSEMOTION:
+                case SDL_MOUSEMOTION: {
                     int mx = event.motion.x;
                     int my = event.motion.y;
 
@@ -191,6 +191,7 @@ ServerConfig get_server_config_sdl() {
                     // Update button hover state
                     start_button.hover = point_in_rect(mx, my, &start_button.rect);
                     break;
+                }
             }
         }
 
