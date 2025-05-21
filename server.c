@@ -21,6 +21,7 @@
 #include "headers/ai.h"
 #include <limits.h>
 #include <ctype.h>
+#include <time.h>
 
 #define SERVER_PORT 2100
 #define MAX_CLIENTS 32
@@ -83,9 +84,13 @@ void handle_handshake(int client_sock, cJSON *msg) {
 }
 
 void handle_status_update(int client_sock, cJSON *msg) {
-    printf("[SERVER] STATUS_UPDATE from drone_id: %s, status: %s\n",
+    int timestamp = cJSON_GetObjectItem(msg, "timestamp")->valueint;
+    int battery = cJSON_GetObjectItem(msg, "battery")->valueint;
+    int speed = cJSON_GetObjectItem(msg, "speed")->valueint;
+    printf("[SERVER] STATUS_UPDATE from drone_id: %s, status: %s, timestamp: %d, battery: %d, speed: %d\n",
         cJSON_GetObjectItem(msg, "drone_id")->valuestring,
-        cJSON_GetObjectItem(msg, "status")->valuestring);
+        cJSON_GetObjectItem(msg, "status")->valuestring,
+        timestamp, battery, speed);
     // Update drone status and position in list
     const char *idstr = cJSON_GetObjectItem(msg, "drone_id")->valuestring;
     int id = 0;
@@ -117,9 +122,15 @@ void handle_status_update(int client_sock, cJSON *msg) {
 }
 
 void handle_mission_complete(int client_sock, cJSON *msg) {
-    printf("[SERVER] MISSION_COMPLETE from drone_id: %s, mission_id: %s\n",
+    int timestamp = cJSON_GetObjectItem(msg, "timestamp")->valueint;
+    int success = cJSON_GetObjectItem(msg, "success")->valueint;
+    const char *details = cJSON_GetObjectItem(msg, "details")->valuestring;
+    printf("[SERVER] MISSION_COMPLETE from drone_id: %s, mission_id: %s, timestamp: %d, success: %s, details: %s\n",
         cJSON_GetObjectItem(msg, "drone_id")->valuestring,
-        cJSON_GetObjectItem(msg, "mission_id")->valuestring);
+        cJSON_GetObjectItem(msg, "mission_id")->valuestring,
+        timestamp,
+        success ? "true" : "false",
+        details);
     // Mark mission complete: set drone to IDLE
     const char *idstr = cJSON_GetObjectItem(msg, "drone_id")->valuestring;
     int id = 0;
@@ -153,7 +164,14 @@ void* client_handler(void* arg) {
         // receive JSON message
         cJSON *msg = recv_json(client_sock, buffer, sizeof(buffer));
         if (!msg) {
-            // no complete message, wait
+            // Invalid or no JSON: send ERROR
+            cJSON *err = cJSON_CreateObject();
+            cJSON_AddStringToObject(err, "type", "ERROR");
+            cJSON_AddNumberToObject(err, "code", 400);
+            cJSON_AddStringToObject(err, "message", "Invalid JSON");
+            cJSON_AddNumberToObject(err, "timestamp", (int)time(NULL));
+            send_json(client_sock, err);
+            cJSON_Delete(err);
             sleep(1);
             continue;
         }
@@ -167,10 +185,12 @@ void* client_handler(void* arg) {
         } else if (strcmp(type, "HEARTBEAT_RESPONSE") == 0) {
             handle_heartbeat_response(client_sock, msg);
         } else {
-            // Send ERROR
+            // Send ERROR for unknown message type
             cJSON *err = cJSON_CreateObject();
             cJSON_AddStringToObject(err, "type", "ERROR");
+            cJSON_AddNumberToObject(err, "code", 400);
             cJSON_AddStringToObject(err, "message", "Unknown message type");
+            cJSON_AddNumberToObject(err, "timestamp", (int)time(NULL));
             send_json(client_sock, err);
             cJSON_Delete(err);
         }
