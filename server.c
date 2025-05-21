@@ -44,7 +44,6 @@ pthread_mutex_t priority_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Forward declarations
 void* client_handler(void* arg);
-void* ui_thread(void* arg);
 void* survivor_generator(void*);
 void* ai_controller(void*);
 void *heartbeat_thread(void *arg);
@@ -251,9 +250,8 @@ void* client_handler(void* arg) {
 
 // UI thread to handle SDL rendering
 void *ui_thread(void *arg) {
-    // Initialize SDL and create window in UI thread
-    if (init_sdl_window()) exit(EXIT_FAILURE);
-
+    // Initialize SDL window and renderer in UI thread
+    if (init_sdl_window()) { fprintf(stderr, "SDL UI init failed\n"); exit(EXIT_FAILURE); }
     while (running) {
         draw_map();
         if (check_events()) { running = 0; break; }
@@ -302,11 +300,7 @@ int main(int argc, char *argv[]) {
     
     // Initialize map dimensions with configured values (height, width)
     init_map(config.map_height, config.map_width);
-
-    // SDL initialization: on macOS do here; on Linux do in UI thread
-    #ifdef __APPLE__
-    if (init_sdl_main_thread()) { fprintf(stderr, "Failed to initialize SDL\n"); exit(EXIT_FAILURE); }
-    #endif
+    
     // Start Phase1 simulator threads
     pthread_t surv_tid, ai_tid, ui_tid;
     
@@ -318,7 +312,7 @@ int main(int argc, char *argv[]) {
     pthread_create(&ai_tid, NULL, ai_controller, NULL);
     pthread_detach(ai_tid);
 
-    // Start UI thread
+    // Start UI thread for SDL rendering
     pthread_create(&ui_tid, NULL, ui_thread, NULL);
     pthread_detach(ui_tid);
 
@@ -353,20 +347,14 @@ int main(int argc, char *argv[]) {
     
     printf("[SERVER] Listening on port %d...\n", config.port);
 
+    fd_set readfds;
+    struct timeval tv;
     while (running) {
-        // Handle SDL events on macOS
-        if (check_events()) {
-            running = 0;
-            break;
-        }
-
-        // Use select to handle both network and events
-        fd_set readfds;
-        struct timeval tv;
+        // Await incoming connections or other network events
         FD_ZERO(&readfds);
         FD_SET(server_sock, &readfds);
-        tv.tv_sec = 0;
-        tv.tv_usec = 100000; // 100ms timeout
+        tv.tv_sec = 1; // timeout 1s
+        tv.tv_usec = 0;
 
         int activity = select(server_sock + 1, &readfds, NULL, NULL, &tv);
         
@@ -386,7 +374,7 @@ int main(int argc, char *argv[]) {
     }
 
     close(server_sock);
-    quit_all();
+    // UI thread will handle SDL cleanup
     destroy(drones);
     destroy(survivors);
     destroy(helpedsurvivors);

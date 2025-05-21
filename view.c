@@ -56,6 +56,9 @@ int init_sdl_main_thread() {
         SDL_Quit();
         return 1;
     }
+    // Ensure window is visible and on top
+    SDL_ShowWindow(window);
+    SDL_RaiseWindow(window);
 
     // Create renderer
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
@@ -227,11 +230,22 @@ int draw_map() {
 
 int check_events() {
     while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_QUIT) return 1;
-        if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE) return 1;
-        if (event.type == SDL_KEYDOWN &&
-            event.key.keysym.sym == SDLK_ESCAPE)
-            return 1;
+        switch (event.type) {
+            case SDL_QUIT:
+                return 1;
+            case SDL_WINDOWEVENT:
+                switch (event.window.event) {
+                    case SDL_WINDOWEVENT_CLOSE:
+                        return 1;
+                    case SDL_WINDOWEVENT_EXPOSED:
+                        draw_map();
+                        break;
+                }
+                break;
+            case SDL_KEYDOWN:
+                if (event.key.keysym.sym == SDLK_ESCAPE) return 1;
+                break;
+        }
     }
     return 0;
 }

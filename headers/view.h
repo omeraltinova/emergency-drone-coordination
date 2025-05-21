@@ -12,6 +12,7 @@ extern int window_width, window_height;
 // Function declarations
 extern int init_sdl_window(void);
 extern int init_sdl_main_thread(void);
+extern int wait_for_sdl_init(void);
 extern void draw_cell(int x, int y, SDL_Color color);
 extern void draw_drones(void);
 extern void draw_survivors(void);
