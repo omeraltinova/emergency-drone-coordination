@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 #define SERVER_PORT 2100
-#define MAX_CLIENTS 32
+#define MAX_CLIENTS 64
 
 extern pthread_mutex_t drones_mutex;
 extern pthread_mutex_t survivors_mutex;

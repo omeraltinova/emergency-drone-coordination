@@ -224,7 +224,7 @@ void launch_drone_clients_process_ui() { // Renamed to avoid conflict
         snprintf(command, sizeof(command), "./drone_client D%d &", i + 1);
         printf("[Launcher UI] Executing: %s\n", command);
         system(command);
-        SDL_Delay(100); 
+        SDL_Delay(300); 
     }
 }
 

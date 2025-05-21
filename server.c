@@ -24,7 +24,7 @@
 #include <time.h>
 
 #define SERVER_PORT 2100
-#define MAX_CLIENTS 32
+#define MAX_CLIENTS 64
 #define BUFFER_SIZE 2048
 
 // Protocol intervals

@@ -152,13 +152,19 @@ void* movement_thread(void* arg) {
 void* communication_thread(void* arg) {
     DroneState* state = (DroneState*)arg;
     char buffer[BUFFER_SIZE];
+    time_t last_recv = time(NULL);
 
     while (1) {
         cJSON *msg = recv_json(state->sockfd, buffer, sizeof(buffer));
         if (!msg) {
             sleep(1);
+            if (time(NULL) - last_recv >= 30) {
+                printf("[DRONE] No server response in 30 seconds, exiting\n");
+                exit(EXIT_SUCCESS);
+            }
             continue;
         }
+        last_recv = time(NULL);
 
         const char *type = cJSON_GetObjectItem(msg, "type")->valuestring;
         if (strcmp(type, "ASSIGN_MISSION") == 0) {

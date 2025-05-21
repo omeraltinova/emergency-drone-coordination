@@ -76,7 +76,7 @@ ServerConfig get_server_config_sdl() {
     ServerConfig config = {
         .map_width = 20,
         .map_height = 20,
-        .max_drones = 10,
+        .max_drones = 64,
         .drone_speed = 1,
         .survivor_spawn_rate = 5,
         .port = 2100
