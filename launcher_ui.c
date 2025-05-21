@@ -220,12 +220,14 @@ void launch_server_process_ui() { // Renamed to avoid conflict if header is not 
 
 void launch_drone_clients_process_ui() { // Renamed to avoid conflict
     char command[128];
+    printf("[Launcher UI] Launching %d drones...\n", drone_count_val);
     for (int i = 0; i < drone_count_val; ++i) {
         snprintf(command, sizeof(command), "./drone_client D%d &", i + 1);
-        printf("[Launcher UI] Executing: %s\n", command);
+        printf("[Launcher UI] Executing (%d/%d): %s\n", i+1, drone_count_val, command);
         system(command);
-        SDL_Delay(100); 
+        SDL_Delay(300); 
     }
+    printf("[Launcher UI] All %d drones launched.\n", drone_count_val);
 }
 
 void handle_input_click(InputField* field, SDL_Point* mouse_point) {
