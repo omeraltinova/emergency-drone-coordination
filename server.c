@@ -42,6 +42,11 @@ pthread_mutex_t survivors_mutex = PTHREAD_MUTEX_INITIALIZER;
 List *priority_survivors;
 pthread_mutex_t priority_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Performance tracking globals
+static double total_survivor_wait = 0;
+static int total_survivors_assigned = 0;
+static pthread_mutex_t perf_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 // Forward declarations
 void* client_handler(void* arg);
 void* survivor_generator(void*);
@@ -49,6 +54,7 @@ void* ai_controller(void*);
 void *heartbeat_thread(void *arg);
 void* heartbeat_monitor(void *arg);
 void* watchdog_thread(void *arg);
+void* log_performance_thread(void *arg);
 
 void send_json(int sockfd, cJSON *json) {
     char *data = cJSON_PrintUnformatted(json);
@@ -262,6 +268,31 @@ void *ui_thread(void *arg) {
     return NULL;
 }
 
+// Log performance periodically
+void* log_performance_thread(void* arg) {
+    while (running) {
+        sleep(30);
+        // Average wait
+        pthread_mutex_lock(&perf_mutex);
+        double avg_wait = total_survivors_assigned ? total_survivor_wait / total_survivors_assigned : 0;
+        int count = total_survivors_assigned;
+        pthread_mutex_unlock(&perf_mutex);
+        // Drone utilization
+        int total=0, busy=0;
+        pthread_mutex_lock(&drones_mutex);
+        for (Node* n = drones->head; n; n = n->next) {
+            total++;
+            Drone* d = *(Drone**)n->data;
+            if (d->status == ON_MISSION) busy++;
+        }
+        pthread_mutex_unlock(&drones_mutex);
+        double util = total ? (double)busy/total * 100.0 : 0;
+        printf("[PERF] Avg survivor wait: %.1f s over %d; Drone util: %.1f%% (%d/%d)\n",
+               avg_wait, count, util, busy, total);
+    }
+    return NULL;
+}
+
 int main(int argc, char *argv[]) {
     signal(SIGPIPE, SIG_IGN);
     // Display welcome banner and get configuration
@@ -302,7 +333,7 @@ int main(int argc, char *argv[]) {
     init_map(config.map_height, config.map_width);
     
     // Start Phase1 simulator threads
-    pthread_t surv_tid, ai_tid, ui_tid;
+    pthread_t surv_tid, ai_tid, ui_tid, perf_tid;
     
     // Start survivor generator with configured spawn rate
     struct timespec spawn_interval = {.tv_sec = config.survivor_spawn_rate, .tv_nsec = 0};
@@ -323,6 +354,9 @@ int main(int argc, char *argv[]) {
     pthread_t hb_send_tid;
     pthread_create(&hb_send_tid, NULL, heartbeat_thread, NULL);
     pthread_detach(hb_send_tid);
+
+    pthread_create(&perf_tid, NULL, log_performance_thread, NULL);
+    pthread_detach(perf_tid);
 
     // initialize last drone activity timestamp
     last_msg_time = time(NULL);
@@ -428,6 +462,14 @@ void *ai_controller(void *arg) {
         }
         pthread_mutex_unlock(&drones_mutex);
         if (best) {
+            // record survivor wait time
+            time_t now = time(NULL);
+            time_t disc = mktime(&s->discovery_time);
+            double wait = difftime(now, disc);
+            pthread_mutex_lock(&perf_mutex);
+            total_survivor_wait += wait;
+            total_survivors_assigned++;
+            pthread_mutex_unlock(&perf_mutex);
             // send assign mission
             int expiry = (int)time(NULL) + 300;
             static int mission_counter = 1;
