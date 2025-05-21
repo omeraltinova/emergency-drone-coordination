@@ -21,7 +21,7 @@
 #include <limits.h>
 #include <ctype.h>
 
-#define SERVER_PORT 5000
+#define SERVER_PORT 2100
 #define MAX_CLIENTS 32
 #define BUFFER_SIZE 2048
 
@@ -168,65 +168,114 @@ void* client_handler(void* arg) {
 
 // UI thread to handle SDL rendering
 void *ui_thread(void *arg) {
+    #ifndef __APPLE__
     if (init_sdl_window()) exit(EXIT_FAILURE);
+    #endif
+    
     while (running) {
         draw_map();
-        // Handle quit events
-        if (check_events()) { running = 0; break; }
         SDL_Delay(100);
     }
-    quit_all();
     return NULL;
 }
 
 int main() {
+    // Display welcome banner and get configuration
+    print_server_banner();
+    ServerConfig config = get_server_config();
+    apply_server_config(config);
+
     int server_sock, *client_sock;
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_len = sizeof(client_addr);
     pthread_t tid;
 
     // Store pointers to Drone
-    drones = create_list(sizeof(Drone*), 128);
+    drones = create_list(sizeof(Drone*), config.max_drones);
     // Store pointers to Survivor
     survivors = create_list(sizeof(Survivor*), 128);
     // Store pointers to Survivor for helped list
     helpedsurvivors = create_list(sizeof(Survivor*), 128);
-    // Initialize map dimensions (height, width)
-    init_map(20, 20);
+    
+    // Initialize map dimensions with configured values
+    init_map(config.map_width, config.map_height);
+
+    #ifdef __APPLE__
+    // On macOS, initialize SDL in the main thread
+    if (init_sdl_main_thread()) {
+        fprintf(stderr, "Failed to initialize SDL\n");
+        exit(EXIT_FAILURE);
+    }
+    #endif
 
     // Start Phase1 simulator threads
-    pthread_t surv_tid, ai_tid;
-    pthread_create(&surv_tid,NULL,survivor_generator,NULL);
+    pthread_t surv_tid, ai_tid, ui_tid;
+    
+    // Start survivor generator with configured spawn rate
+    struct timespec spawn_interval = {.tv_sec = config.survivor_spawn_rate, .tv_nsec = 0};
+    pthread_create(&surv_tid, NULL, survivor_generator, &spawn_interval);
     pthread_detach(surv_tid);
-    pthread_create(&ai_tid,NULL,ai_controller,NULL);
+    
+    pthread_create(&ai_tid, NULL, ai_controller, NULL);
     pthread_detach(ai_tid);
 
     // Start UI thread
-    pthread_t ui_tid;
     pthread_create(&ui_tid, NULL, ui_thread, NULL);
     pthread_detach(ui_tid);
 
     server_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (server_sock < 0) { perror("socket"); exit(EXIT_FAILURE); }
+    
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.sin_port = htons(config.port);
+    
     if (bind(server_sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         perror("bind"); exit(EXIT_FAILURE);
     }
-    if (listen(server_sock, MAX_CLIENTS) < 0) {
+    
+    if (listen(server_sock, config.max_drones) < 0) {
         perror("listen"); exit(EXIT_FAILURE);
     }
-    printf("[SERVER] Listening on port %d...\n", SERVER_PORT);
-    while (1) {
-        client_sock = malloc(sizeof(int));
-        *client_sock = accept(server_sock, (struct sockaddr*)&client_addr, &client_len);
-        if (*client_sock < 0) { free(client_sock); continue; }
-        printf("[SERVER] Accepted new connection from %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-        pthread_create(&tid, NULL, client_handler, client_sock);
-        pthread_detach(tid);
+    
+    printf("[SERVER] Listening on port %d...\n", config.port);
+
+    while (running) {
+        // Handle SDL events on macOS
+        #ifdef __APPLE__
+        if (check_events()) {
+            running = 0;
+            break;
+        }
+        #endif
+
+        // Use select to handle both network and events
+        fd_set readfds;
+        struct timeval tv;
+        FD_ZERO(&readfds);
+        FD_SET(server_sock, &readfds);
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000; // 100ms timeout
+
+        int activity = select(server_sock + 1, &readfds, NULL, NULL, &tv);
+        
+        if (activity > 0 && FD_ISSET(server_sock, &readfds)) {
+            client_sock = malloc(sizeof(int));
+            *client_sock = accept(server_sock, (struct sockaddr*)&client_addr, &client_len);
+            if (*client_sock < 0) { 
+                free(client_sock); 
+                continue; 
+            }
+            printf("[SERVER] Accepted new connection from %s:%d\n", 
+                   inet_ntoa(client_addr.sin_addr), 
+                   ntohs(client_addr.sin_port));
+            pthread_create(&tid, NULL, client_handler, client_sock);
+            pthread_detach(tid);
+        }
     }
+
     close(server_sock);
+    quit_all();
     destroy(drones);
     destroy(survivors);
     destroy(helpedsurvivors);

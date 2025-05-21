@@ -8,11 +8,29 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <signal.h>
+#include <pthread.h>
 #include "cJSON/cJSON.h"
 
 #define SERVER_IP "127.0.0.1"
-#define SERVER_PORT 5000
+#define SERVER_PORT 2100
 #define BUFFER_SIZE 2048
+
+// Drone state structure
+typedef struct {
+    int sockfd;
+    char* drone_id;
+    int x;
+    int y;
+    int target_x;
+    int target_y;
+    int battery;
+    int speed;
+    int on_mission;
+    pthread_mutex_t lock;
+    pthread_cond_t mission_cv;
+} DroneState;
+
+DroneState* drone_state;
 
 void send_json(int sockfd, cJSON *json) {
     char *data = cJSON_PrintUnformatted(json);
@@ -69,65 +87,137 @@ void mission_complete(int sockfd, const char* drone_id, const char* mission_id) 
     cJSON_Delete(msg);
 }
 
-int main(int argc, char *argv[]) {
-    // Ignore SIGPIPE so send() errors don't terminate process
-    signal(SIGPIPE, SIG_IGN);
-    int sockfd;
-    struct sockaddr_in serv_addr;
+void* movement_thread(void* arg) {
+    DroneState* state = (DroneState*)arg;
+    
+    while (1) {
+        pthread_mutex_lock(&state->lock);
+        while (!state->on_mission) {
+            pthread_cond_wait(&state->mission_cv, &state->lock);
+        }
+        
+        // Store target coordinates
+        int tx = state->target_x;
+        int ty = state->target_y;
+        pthread_mutex_unlock(&state->lock);
+
+        // Move along X axis first
+        while (1) {
+            pthread_mutex_lock(&state->lock);
+            if (state->x == tx) {
+                pthread_mutex_unlock(&state->lock);
+                break;
+            }
+            if (state->x < tx) state->x++; else state->x--;
+            status_update(state->sockfd, state->drone_id, state->x, state->y, "on_mission", state->battery, state->speed);
+            pthread_mutex_unlock(&state->lock);
+            sleep(1);
+        }
+
+        // Then move along Y axis
+        while (1) {
+            pthread_mutex_lock(&state->lock);
+            if (state->y == ty) {
+                // Mission complete
+                mission_complete(state->sockfd, state->drone_id, "0");
+                printf("[DRONE] Mission complete, reporting\n");
+                status_update(state->sockfd, state->drone_id, state->x, state->y, "idle", state->battery, state->speed);
+                state->on_mission = 0;
+                pthread_mutex_unlock(&state->lock);
+                break;
+            }
+            if (state->y < ty) state->y++; else state->y--;
+            status_update(state->sockfd, state->drone_id, state->x, state->y, "on_mission", state->battery, state->speed);
+            pthread_mutex_unlock(&state->lock);
+            sleep(1);
+        }
+    }
+    return NULL;
+}
+
+void* communication_thread(void* arg) {
+    DroneState* state = (DroneState*)arg;
     char buffer[BUFFER_SIZE];
+
+    while (1) {
+        cJSON *msg = recv_json(state->sockfd, buffer, sizeof(buffer));
+        if (!msg) {
+            sleep(1);
+            continue;
+        }
+
+        const char *type = cJSON_GetObjectItem(msg, "type")->valuestring;
+        if (strcmp(type, "MISSION_ASSIGN") == 0) {
+            pthread_mutex_lock(&state->lock);
+            state->target_x = cJSON_GetObjectItem(msg, "x")->valueint;
+            state->target_y = cJSON_GetObjectItem(msg, "y")->valueint;
+            printf("[DRONE] Received MISSION_ASSIGN to (%d,%d)\n", state->target_x, state->target_y);
+            state->on_mission = 1;
+            pthread_cond_signal(&state->mission_cv);
+            pthread_mutex_unlock(&state->lock);
+        }
+        cJSON_Delete(msg);
+    }
+    return NULL;
+}
+
+int main(int argc, char *argv[]) {
+    signal(SIGPIPE, SIG_IGN);
     const char* drone_id = argc > 1 ? argv[1] : "D1";
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) { perror("socket"); exit(EXIT_FAILURE); }
+
+    // Initialize drone state
+    drone_state = malloc(sizeof(DroneState));
+    drone_state->drone_id = strdup(drone_id);
+    drone_state->x = 0;
+    drone_state->y = 0;
+    drone_state->battery = 100;
+    drone_state->speed = 1;
+    drone_state->on_mission = 0;
+    pthread_mutex_init(&drone_state->lock, NULL);
+    pthread_cond_init(&drone_state->mission_cv, NULL);
+
+    // Connect to server
+    struct sockaddr_in serv_addr;
+    drone_state->sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (drone_state->sockfd < 0) { perror("socket"); exit(EXIT_FAILURE); }
+    
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT);
     inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr);
-    if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+    
+    if (connect(drone_state->sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
         perror("connect"); exit(EXIT_FAILURE);
     }
+    
     printf("[DRONE] Connected to server as %s\n", drone_id);
-    handshake(sockfd, drone_id);
-    // Wait for handshake ack
-    cJSON *msg = recv_json(sockfd, buffer, sizeof(buffer));
+    
+    // Initial handshake
+    handshake(drone_state->sockfd, drone_id);
+    char buffer[BUFFER_SIZE];
+    cJSON *msg = recv_json(drone_state->sockfd, buffer, sizeof(buffer));
     if (msg) {
         printf("[DRONE] Server: %s\n", cJSON_Print(msg));
         cJSON_Delete(msg);
     }
-    // idle starting position
-    int x = 0, y = 0;
-    // send initial status
-    status_update(sockfd, drone_id, x, y, "idle", 100, 1);
-    // mission loop
-    while (1) {
-        cJSON *msg = recv_json(sockfd, buffer, sizeof(buffer));
-        if (!msg) {
-            // No message or parse error, wait for assignment
-            sleep(1);
-            continue;
-        }
-        const char *type = cJSON_GetObjectItem(msg, "type")->valuestring;
-        if (strcmp(type, "MISSION_ASSIGN") == 0) {
-            int tx = cJSON_GetObjectItem(msg, "x")->valueint;
-            int ty = cJSON_GetObjectItem(msg, "y")->valueint;
-            printf("[DRONE] Received MISSION_ASSIGN to (%d,%d)\n", tx, ty);
-            // move along X axis first
-            while (x != tx) {
-                if (x < tx) x++; else x--;
-                status_update(sockfd, drone_id, x, y, "on_mission", 100, 1);
-                sleep(1);
-            }
-            // then move along Y axis
-            while (y != ty) {
-                if (y < ty) y++; else y--;
-                status_update(sockfd, drone_id, x, y, "on_mission", 100, 1);
-                sleep(1);
-            }
-            // arrived
-            mission_complete(sockfd, drone_id, "0");
-            printf("[DRONE] Mission complete, reporting\n");
-            status_update(sockfd, drone_id, x, y, "idle", 100, 1);
-        }
-        cJSON_Delete(msg);
-    }
-    close(sockfd);
+
+    // Send initial status
+    status_update(drone_state->sockfd, drone_id, 0, 0, "idle", 100, 1);
+
+    // Create movement and communication threads
+    pthread_t move_tid, comm_tid;
+    pthread_create(&move_tid, NULL, movement_thread, drone_state);
+    pthread_create(&comm_tid, NULL, communication_thread, drone_state);
+
+    // Wait for threads
+    pthread_join(move_tid, NULL);
+    pthread_join(comm_tid, NULL);
+
+    // Cleanup
+    close(drone_state->sockfd);
+    pthread_mutex_destroy(&drone_state->lock);
+    pthread_cond_destroy(&drone_state->mission_cv);
+    free(drone_state->drone_id);
+    free(drone_state);
+    
     return 0;
 }
