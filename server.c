@@ -102,8 +102,13 @@ void handle_status_update(int client_sock, cJSON *msg) {
             pthread_mutex_lock(&d->lock);
             d->coord.x = x;
             d->coord.y = y;
-            if (strcmp(st, "idle") == 0) d->status = IDLE;
-            else if (strcmp(st, "busy") == 0) d->status = ON_MISSION;
+            if (strcmp(st, "idle") == 0) {
+                if (d->status != ON_MISSION) {
+                    d->status = IDLE;
+                }
+            } else if (strcmp(st, "busy") == 0) {
+                d->status = ON_MISSION;
+            }
             pthread_mutex_unlock(&d->lock);
             break;
         }
@@ -184,15 +189,19 @@ void *ui_thread(void *arg) {
 
     while (running) {
         draw_map();
-        // Process SDL events to keep UI responsive
+        #ifndef __APPLE__
+        // Process SDL events to keep UI responsive on non-Apple systems
         if (check_events()) {
             running = 0;
             break;
         }
+        #endif
         SDL_Delay(100);
     }
-    // Cleanup SDL before exit
+    #ifndef __APPLE__
+    // Cleanup SDL before exit on non-Apple systems
     quit_all();
+    #endif
     return NULL;
 }
 
@@ -235,6 +244,12 @@ int main(int argc, char *argv[]) {
     // On macOS, initialize SDL in the main thread
     if (init_sdl_main_thread()) {
         fprintf(stderr, "Failed to initialize SDL\n");
+        exit(EXIT_FAILURE);
+    }
+    #else
+    // On other systems (like Linux), initialize SDL here before creating UI thread
+    if (init_sdl_window()) {
+        fprintf(stderr, "Failed to initialize SDL for non-Apple system\n");
         exit(EXIT_FAILURE);
     }
     #endif

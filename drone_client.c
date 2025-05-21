@@ -89,50 +89,63 @@ void mission_complete(int sockfd, const char* drone_id, const char* mission_id) 
 
 void* movement_thread(void* arg) {
     DroneState* state = (DroneState*)arg;
-    
+    printf("[DRONE %s] movement_thread: Entered\n", state->drone_id); // Debug entry
+
     while (1) {
         pthread_mutex_lock(&state->lock);
+        printf("[DRONE %s] movement_thread: Waiting for mission (on_mission=%d)\n", state->drone_id, state->on_mission); // Debug wait
         while (!state->on_mission) {
             pthread_cond_wait(&state->mission_cv, &state->lock);
+             printf("[DRONE %s] movement_thread: Woke up from cond_wait (on_mission=%d)\n", state->drone_id, state->on_mission); // Debug wake up
         }
         
         // Store target coordinates
         int tx = state->target_x;
         int ty = state->target_y;
+        printf("[DRONE %s] movement_thread: Mission received! Target: (%d,%d). Current: (%d,%d)\n", state->drone_id, tx, ty, state->x, state->y); // Debug mission start
         pthread_mutex_unlock(&state->lock);
 
         // Move along X axis first
+        // printf("[DRONE %s] Movement thread: Starting X-axis movement to %d from %d\n", state->drone_id, tx, state->x); // Old log, can be removed
         while (1) {
             pthread_mutex_lock(&state->lock);
             if (state->x == tx) {
+                printf("[DRONE %s] movement_thread: X-axis movement complete. Current X: %d, Target X: %d\n", state->drone_id, state->x, tx); // Debug X complete
                 pthread_mutex_unlock(&state->lock);
                 break;
             }
             if (state->x < tx) state->x++; else state->x--;
-            // Report busy status while moving
+            // printf("[DRONE %s] Movement thread: Moved to X=%d, Y=%d\n", state->drone_id, state->x, state->y); // Old log, can be removed
             status_update(state->sockfd, state->drone_id, state->x, state->y, "busy", state->battery, state->speed);
+            printf("[DRONE %s] movement_thread: Sent STATUS_UPDATE (busy) for X-move. New pos: (%d,%d)\n", state->drone_id, state->x, state->y); // Debug status update
             pthread_mutex_unlock(&state->lock);
             sleep(1);
         }
 
         // Then move along Y axis
+        // printf("[DRONE %s] Movement thread: Starting Y-axis movement to %d from %d\n", state->drone_id, ty, state->y); // Old log, can be removed
         while (1) {
             pthread_mutex_lock(&state->lock);
             if (state->y == ty) {
+                printf("[DRONE %s] movement_thread: Y-axis movement complete. Current Y: %d, Target Y: %d\n", state->drone_id, state->y, ty); // Debug Y complete
                 // Mission complete
                 mission_complete(state->sockfd, state->drone_id, "0");
-                printf("[DRONE] Mission complete, reporting\n");
+                printf("[DRONE %s] movement_thread: Sent MISSION_COMPLETE. Pos: (%d,%d)\n", state->drone_id, state->x, state->y); // Debug mission complete
                 status_update(state->sockfd, state->drone_id, state->x, state->y, "idle", state->battery, state->speed);
+                printf("[DRONE %s] movement_thread: Sent STATUS_UPDATE (idle) after mission. Pos: (%d,%d)\n", state->drone_id, state->x, state->y); // Debug status idle
                 state->on_mission = 0;
                 pthread_mutex_unlock(&state->lock);
                 break;
             }
             if (state->y < ty) state->y++; else state->y--;
+            // printf("[DRONE %s] Movement thread: Moved to X=%d, Y=%d\n", state->drone_id, state->x, state->y); // Old log, can be removed
             status_update(state->sockfd, state->drone_id, state->x, state->y, "busy", state->battery, state->speed);
+            printf("[DRONE %s] movement_thread: Sent STATUS_UPDATE (busy) for Y-move. New pos: (%d,%d)\n", state->drone_id, state->x, state->y); // Debug status update
             pthread_mutex_unlock(&state->lock);
             sleep(1);
         }
     }
+    printf("[DRONE %s] movement_thread: Exiting\n", state->drone_id); // Debug exit
     return NULL;
 }
 
