@@ -3,6 +3,7 @@
 #include <string.h>
 #include "headers/server.h"
 #include "headers/globals.h"
+#include "headers/server_config.h"
 
 #define DEFAULT_MAP_WIDTH 20
 #define DEFAULT_MAP_HEIGHT 20
@@ -11,12 +12,12 @@
 #define DEFAULT_SURVIVOR_SPAWN_RATE 5
 #define DEFAULT_PORT 2100
 
-void print_server_banner() {
-    printf("\033[1;36m"); // Bright cyan color
-    printf("╔════════════════════════════════════════════════════╗\n");
-    printf("║     Emergency Drone Coordination System Server      ║\n");
-    printf("╚════════════════════════════════════════════════════╝\n");
-    printf("\033[0m"); // Reset color
+void print_server_banner(void) {
+    printf("\n");
+    printf("╔═══════════════════════════════════════════════════════════╗\n");
+    printf("║           Emergency Drone Coordination System              ║\n");
+    printf("║                     Server - Phase 2                      ║\n");
+    printf("╚═══════════════════════════════════════════════════════════╝\n\n");
 }
 
 void print_config_menu() {
@@ -49,59 +50,23 @@ int get_integer_input(const char* prompt, int min, int max, int default_value) {
     return value;
 }
 
-ServerConfig get_server_config() {
+ServerConfig get_server_config(void) {
     ServerConfig config = {
-        .map_width = DEFAULT_MAP_WIDTH,
-        .map_height = DEFAULT_MAP_HEIGHT,
-        .max_drones = DEFAULT_MAX_DRONES,
-        .drone_speed = DEFAULT_DRONE_SPEED,
-        .survivor_spawn_rate = DEFAULT_SURVIVOR_SPAWN_RATE,
-        .port = DEFAULT_PORT
+        .port = DEFAULT_PORT,              // Default port
+        .max_drones = DEFAULT_MAX_DRONES,  // Maximum number of drones
+        .map_width = DEFAULT_MAP_WIDTH,    // Default map width
+        .map_height = DEFAULT_MAP_HEIGHT,  // Default map height
+        .survivor_spawn_rate = DEFAULT_SURVIVOR_SPAWN_RATE,  // Spawn rate
+        .drone_speed = DEFAULT_DRONE_SPEED // Default drone speed
     };
-
-    while (1) {
-        print_config_menu();
-        
-        char choice[10];
-        if (fgets(choice, sizeof(choice), stdin) == NULL) {
-            continue;
-        }
-
-        switch (atoi(choice)) {
-            case 1:
-                config.map_width = get_integer_input("Enter map width", 10, 100, DEFAULT_MAP_WIDTH);
-                break;
-            case 2:
-                config.map_height = get_integer_input("Enter map height", 10, 100, DEFAULT_MAP_HEIGHT);
-                break;
-            case 3:
-                config.max_drones = get_integer_input("Enter maximum number of drones", 1, 50, DEFAULT_MAX_DRONES);
-                break;
-            case 4:
-                config.drone_speed = get_integer_input("Enter drone speed", 1, 10, DEFAULT_DRONE_SPEED);
-                break;
-            case 5:
-                config.survivor_spawn_rate = get_integer_input("Enter survivor spawn rate (seconds)", 1, 30, DEFAULT_SURVIVOR_SPAWN_RATE);
-                break;
-            case 6:
-                config.port = get_integer_input("Enter server port", 1024, 65535, DEFAULT_PORT);
-                break;
-            case 7:
-                printf("\n\033[1;32mStarting server with current configuration...\033[0m\n");
-                return config;
-            default:
-                printf("\033[1;31mInvalid choice. Please try again.\033[0m\n");
-        }
-    }
+    return config;
 }
 
 void apply_server_config(ServerConfig config) {
-    // Print final configuration
-    printf("\n\033[1;36mServer Configuration:\033[0m\n");
-    printf("Map Size: %dx%d\n", config.map_width, config.map_height);
-    printf("Maximum Drones: %d\n", config.max_drones);
-    printf("Drone Speed: %d\n", config.drone_speed);
-    printf("Survivor Spawn Rate: %d seconds\n", config.survivor_spawn_rate);
-    printf("Server Port: %d\n", config.port);
-    printf("\n");
+    printf("[SERVER] Configuration applied:\n");
+    printf("  - Port: %d\n", config.port);
+    printf("  - Max Drones: %d\n", config.max_drones);
+    printf("  - Map Size: %dx%d\n", config.map_width, config.map_height);
+    printf("  - Survivor Spawn Rate: %d seconds\n", config.survivor_spawn_rate);
+    printf("  - Drone Speed: %d\n", config.drone_speed);
 } 

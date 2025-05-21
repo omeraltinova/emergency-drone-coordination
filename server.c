@@ -15,6 +15,7 @@
 #include "headers/map.h"
 #include "headers/view.h"
 #include "headers/globals.h"
+#include "headers/server_config.h"
 #include <signal.h>
 #include <SDL2/SDL.h>
 #include "headers/ai.h"

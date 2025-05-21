@@ -4,6 +4,7 @@
 #include "list.h"
 #include "drone.h"
 #include "survivor.h"
+#include "server_config.h"
 #include <stdint.h>
 
 #define SERVER_PORT 2100
@@ -13,16 +14,6 @@ extern pthread_mutex_t drones_mutex;
 extern pthread_mutex_t survivors_mutex;
 extern List *drones;
 extern List *survivors;
-
-// Server configuration structure
-typedef struct {
-    int map_width;
-    int map_height;
-    int max_drones;
-    int drone_speed;
-    int survivor_spawn_rate;  // in seconds
-    int port;
-} ServerConfig;
 
 // Function declarations
 extern void print_server_banner(void);
