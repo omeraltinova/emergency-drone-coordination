@@ -312,6 +312,10 @@ int main(int argc, char *argv[]) {
     pthread_create(&hb_mon_tid, NULL, heartbeat_monitor, NULL);
     pthread_detach(hb_mon_tid);
 
+    pthread_t hb_send_tid;
+    pthread_create(&hb_send_tid, NULL, heartbeat_thread, NULL);
+    pthread_detach(hb_send_tid);
+
     server_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (server_sock < 0) { perror("socket"); exit(EXIT_FAILURE); }
     
@@ -328,11 +332,6 @@ int main(int argc, char *argv[]) {
     }
     
     printf("[SERVER] Listening on port %d...\n", config.port);
-
-    // start heartbeat thread
-    pthread_t hb_tid;
-    pthread_create(&hb_tid, NULL, heartbeat_thread, NULL);
-    pthread_detach(hb_tid);
 
     while (running) {
         // Handle SDL events on macOS
@@ -445,6 +444,7 @@ void *ai_controller(void *arg) {
 // Heartbeat thread
 void *heartbeat_thread(void *arg) {
     while (running) {
+        sleep(HEARTBEAT_INTERVAL);
         cJSON *hb = cJSON_CreateObject();
         cJSON_AddStringToObject(hb, "type", "HEARTBEAT");
         cJSON_AddNumberToObject(hb, "timestamp", (int)time(NULL));
@@ -455,7 +455,6 @@ void *heartbeat_thread(void *arg) {
         }
         pthread_mutex_unlock(&drones_mutex);
         cJSON_Delete(hb);
-        sleep(HEARTBEAT_INTERVAL);
     }
     return NULL;
 }
