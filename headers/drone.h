@@ -26,6 +26,8 @@ typedef struct drone {
     pthread_cond_t mission_cv;  // Condition variable for new missions
     volatile bool lock_initialized;    // Flag to track if mutex is initialized
     volatile bool cv_initialized;      // Flag to track if condition variable is initialized
+    time_t last_heartbeat;   // Timestamp of last heartbeat response
+    int missed_heartbeats;   // Consecutive missed heartbeat count
 } Drone;
 
 // Global drone list (extern)

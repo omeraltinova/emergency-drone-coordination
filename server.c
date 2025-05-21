@@ -22,6 +22,7 @@
 #include <limits.h>
 #include <ctype.h>
 #include <time.h>
+#include <errno.h>
 
 #define SERVER_PORT 2100
 #define MAX_CLIENTS 64
@@ -40,11 +41,19 @@ void* ui_thread(void* arg);
 void* survivor_generator(void*);
 void* ai_controller(void*);
 void *heartbeat_thread(void *arg);
+void* heartbeat_monitor(void *arg);
 
 void send_json(int sockfd, cJSON *json) {
     char *data = cJSON_PrintUnformatted(json);
-    send(sockfd, data, strlen(data), 0);
-    send(sockfd, "\n", 1, 0); // newline as delimiter
+    size_t len = strlen(data);
+    size_t total = 0;
+    while (total < len) {
+        ssize_t sent = send(sockfd, data + total, len - total, MSG_NOSIGNAL);
+        if (sent <= 0) break;
+        total += sent;
+    }
+    // Send newline delimiter
+    send(sockfd, "\n", 1, MSG_NOSIGNAL);
     free(data);
 }
 
@@ -150,33 +159,61 @@ void handle_mission_complete(int client_sock, cJSON *msg) {
 }
 
 void handle_heartbeat_response(int client_sock, cJSON *msg) {
-    printf("[SERVER] HEARTBEAT_RESPONSE from drone_id: %s\n",
-        cJSON_GetObjectItem(msg, "drone_id")->valuestring);
-    // Optionally update last-seen timestamp
+    pthread_mutex_lock(&drones_mutex);
+    for (Node* n = drones->head; n; n = n->next) {
+        Drone* d = *(Drone**)n->data;
+        if (d->sockfd == client_sock) {
+            d->last_heartbeat = time(NULL);
+            d->missed_heartbeats = 0;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&drones_mutex);
 }
 
 void* client_handler(void* arg) {
     int client_sock = *(int*)arg;
     free(arg);
+    struct timeval tv = {1, 0};
+    setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    time_t disconnect_start = 0;
+    bool waiting_reconnect = false;
+    char drone_id_str[32] = "";
     printf("[SERVER] New client connected, socket: %d\n", client_sock);
     char buffer[BUFFER_SIZE];
     while (running) {
         // receive JSON message
+        errno = 0;
         cJSON *msg = recv_json(client_sock, buffer, sizeof(buffer));
         if (!msg) {
-            // Invalid or no JSON: send ERROR
-            cJSON *err = cJSON_CreateObject();
-            cJSON_AddStringToObject(err, "type", "ERROR");
-            cJSON_AddNumberToObject(err, "code", 400);
-            cJSON_AddStringToObject(err, "message", "Invalid JSON");
-            cJSON_AddNumberToObject(err, "timestamp", (int)time(NULL));
-            send_json(client_sock, err);
-            cJSON_Delete(err);
-            sleep(1);
+            if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
+            if (!waiting_reconnect) {
+                disconnect_start = time(NULL);
+                waiting_reconnect = true;
+                printf("[SERVER] Drone %s disconnected, waiting 25s for reconnect\n", drone_id_str);
+            } else if (time(NULL) - disconnect_start >= 25) {
+                printf("[SERVER] Drone %s failed to reconnect, disconnecting\n", drone_id_str);
+                pthread_mutex_lock(&drones_mutex);
+                for (Node* n = drones->head; n; n = n->next) {
+                    Drone* d = *(Drone**)n->data;
+                    if (d->sockfd == client_sock) {
+                        d->status = DISCONNECTED;
+                        drones->removenode(drones, n);
+                        free(d);
+                        break;
+                    }
+                }
+                pthread_mutex_unlock(&drones_mutex);
+                break;
+            }
             continue;
         }
-        const char *type = cJSON_GetObjectItem(msg, "type")->valuestring;
+        if (waiting_reconnect) waiting_reconnect = false;
+        const char* type = cJSON_GetObjectItem(msg, "type")->valuestring;
         if (strcmp(type, "HANDSHAKE") == 0) {
+            const char* idstr = cJSON_GetObjectItem(msg, "drone_id")->valuestring;
+            strncpy(drone_id_str, idstr, sizeof(drone_id_str)-1);
+            drone_id_str[sizeof(drone_id_str)-1] = '\0';
             handle_handshake(client_sock, msg);
         } else if (strcmp(type, "STATUS_UPDATE") == 0) {
             handle_status_update(client_sock, msg);
@@ -217,6 +254,7 @@ void *ui_thread(void *arg) {
 }
 
 int main(int argc, char *argv[]) {
+    signal(SIGPIPE, SIG_IGN);
     // Display welcome banner and get configuration
     print_server_banner();
     ServerConfig config = get_server_config();
@@ -269,6 +307,10 @@ int main(int argc, char *argv[]) {
     // Start UI thread
     pthread_create(&ui_tid, NULL, ui_thread, NULL);
     pthread_detach(ui_tid);
+
+    pthread_t hb_mon_tid;
+    pthread_create(&hb_mon_tid, NULL, heartbeat_monitor, NULL);
+    pthread_detach(hb_mon_tid);
 
     server_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (server_sock < 0) { perror("socket"); exit(EXIT_FAILURE); }
@@ -414,6 +456,32 @@ void *heartbeat_thread(void *arg) {
         pthread_mutex_unlock(&drones_mutex);
         cJSON_Delete(hb);
         sleep(HEARTBEAT_INTERVAL);
+    }
+    return NULL;
+}
+
+void* heartbeat_monitor(void *arg) {
+    while (running) {
+        sleep(HEARTBEAT_INTERVAL);
+        pthread_mutex_lock(&drones_mutex);
+        time_t now = time(NULL);
+        Node* n = drones->head;
+        while (n) {
+            Drone* d = *(Drone**)n->data;
+            if (now - d->last_heartbeat >= HEARTBEAT_INTERVAL) {
+                d->missed_heartbeats++;
+                if (d->missed_heartbeats >= 3) {
+                    printf("[SERVER] Drone %d missed 3 heartbeats, disconnecting\n", d->id);
+                    Node* to_remove = n;
+                    n = n->next;
+                    drones->removenode(drones, to_remove);
+                    free(d);
+                    continue;
+                }
+            }
+            n = n->next;
+        }
+        pthread_mutex_unlock(&drones_mutex);
     }
     return NULL;
 }
