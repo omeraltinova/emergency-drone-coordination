@@ -109,6 +109,12 @@ void draw_cell(int x, int y, SDL_Color color) {
 }
 
 void draw_target_marker(int x, int y) {
+    pthread_mutex_lock(&sdl_mutex);
+    if (!sdl_ready) {
+        pthread_mutex_unlock(&sdl_mutex);
+        return;
+    }
+
     // Draw a cross at the target location
     SDL_SetRenderDrawColor(renderer, YELLOW.r, YELLOW.g, YELLOW.b, YELLOW.a);
     int center_x = y * CELL_SIZE + CELL_SIZE / 2;
@@ -117,6 +123,7 @@ void draw_target_marker(int x, int y) {
     
     SDL_RenderDrawLine(renderer, center_x - size, center_y, center_x + size, center_y);
     SDL_RenderDrawLine(renderer, center_x, center_y - size, center_x, center_y + size);
+    pthread_mutex_unlock(&sdl_mutex);
 }
 
 void draw_drones() {

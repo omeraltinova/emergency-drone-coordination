@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include "cJSON/cJSON.h"
 #include "headers/drone.h"
 #include "headers/list.h"
@@ -87,10 +88,12 @@ void handle_status_update(int client_sock, cJSON *msg) {
     int x = cJSON_GetObjectItem(loc, "x")->valueint;
     int y = cJSON_GetObjectItem(loc, "y")->valueint;
     const char *st = cJSON_GetObjectItem(msg, "status")->valuestring;
+    printf("[DEBUG] handle_status_update: Received for Drone ID %d, X: %d, Y: %d, Raw Status: %s\n", id, x, y, st); // Debug print
     pthread_mutex_lock(&drones_mutex);
     for (Node *n = drones->head; n; n = n->next) {
         Drone *d = *(Drone **)n->data;
         if (d->id == id) {
+            printf("[DEBUG] handle_status_update: Found drone %d in list. Old coords: (%d,%d), Old Status: %d\n", d->id, d->coord.x, d->coord.y, d->status); // Debug print
             pthread_mutex_lock(&d->lock);
             d->coord.x = x;
             d->coord.y = y;
@@ -297,6 +300,28 @@ int main() {
     destroy(drones);
     destroy(survivors);
     destroy(helpedsurvivors);
+
+    printf("[SERVER] Server shutting down. Terminating drone clients...\n");
+    int ret = system("pkill -f ./drone_client");
+    if (ret == -1) {
+        perror("[SERVER] Failed to execute pkill command");
+    } else if (WIFEXITED(ret)) {
+        // pkill returns 0 if any processes were signalled, 1 if no processes matched.
+        // Other values can indicate errors.
+        int pkill_status = WEXITSTATUS(ret);
+        if (pkill_status == 0) {
+            printf("[SERVER] Drone client termination signal sent successfully.\n");
+        } else if (pkill_status == 1) {
+            printf("[SERVER] No drone_client processes found to terminate.\n");
+        } else {
+            fprintf(stderr, "[SERVER] pkill command exited with status %d\n", pkill_status);
+        }
+    } else if (WIFSIGNALED(ret)) {
+        fprintf(stderr, "[SERVER] pkill command was terminated by signal %d\n", WTERMSIG(ret));
+    } else {
+        fprintf(stderr, "[SERVER] pkill command exited with an unknown status.\n");
+    }
+
     return 0;
 }
 
