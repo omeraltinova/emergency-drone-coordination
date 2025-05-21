@@ -172,11 +172,18 @@ void *ui_thread(void *arg) {
     #ifndef __APPLE__
     if (init_sdl_window()) exit(EXIT_FAILURE);
     #endif
-    
+
     while (running) {
         draw_map();
+        // Process SDL events to keep UI responsive
+        if (check_events()) {
+            running = 0;
+            break;
+        }
         SDL_Delay(100);
     }
+    // Cleanup SDL before exit
+    quit_all();
     return NULL;
 }
 
