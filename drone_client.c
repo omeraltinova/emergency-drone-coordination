@@ -109,7 +109,8 @@ void* movement_thread(void* arg) {
                 break;
             }
             if (state->x < tx) state->x++; else state->x--;
-            status_update(state->sockfd, state->drone_id, state->x, state->y, "on_mission", state->battery, state->speed);
+            // Report busy status while moving
+            status_update(state->sockfd, state->drone_id, state->x, state->y, "busy", state->battery, state->speed);
             pthread_mutex_unlock(&state->lock);
             sleep(1);
         }
@@ -127,7 +128,7 @@ void* movement_thread(void* arg) {
                 break;
             }
             if (state->y < ty) state->y++; else state->y--;
-            status_update(state->sockfd, state->drone_id, state->x, state->y, "on_mission", state->battery, state->speed);
+            status_update(state->sockfd, state->drone_id, state->x, state->y, "busy", state->battery, state->speed);
             pthread_mutex_unlock(&state->lock);
             sleep(1);
         }
@@ -147,14 +148,29 @@ void* communication_thread(void* arg) {
         }
 
         const char *type = cJSON_GetObjectItem(msg, "type")->valuestring;
-        if (strcmp(type, "MISSION_ASSIGN") == 0) {
+        if (strcmp(type, "ASSIGN_MISSION") == 0) {
+            // Parse target coordinates from nested object
+            cJSON *tgt = cJSON_GetObjectItem(msg, "target");
+            int tx = 0, ty = 0;
+            if (tgt) {
+                tx = cJSON_GetObjectItem(tgt, "x")->valueint;
+                ty = cJSON_GetObjectItem(tgt, "y")->valueint;
+            }
             pthread_mutex_lock(&state->lock);
-            state->target_x = cJSON_GetObjectItem(msg, "x")->valueint;
-            state->target_y = cJSON_GetObjectItem(msg, "y")->valueint;
-            printf("[DRONE] Received MISSION_ASSIGN to (%d,%d)\n", state->target_x, state->target_y);
+            state->target_x = tx;
+            state->target_y = ty;
+            printf("[DRONE] Received ASSIGN_MISSION to (%d,%d)\n", tx, ty);
             state->on_mission = 1;
             pthread_cond_signal(&state->mission_cv);
             pthread_mutex_unlock(&state->lock);
+        } else if (strcmp(type, "HEARTBEAT") == 0) {
+            // Respond to server heartbeat
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddStringToObject(resp, "type", "HEARTBEAT_RESPONSE");
+            cJSON_AddStringToObject(resp, "drone_id", state->drone_id);
+            cJSON_AddNumberToObject(resp, "timestamp", (int)time(NULL));
+            send_json(state->sockfd, resp);
+            cJSON_Delete(resp);
         }
         cJSON_Delete(msg);
     }
@@ -192,27 +208,39 @@ int main(int argc, char *argv[]) {
     printf("[DRONE] Connected to server as %s\n", drone_id);
     
     // Initial handshake
+    printf("[DRONE-DEBUG] Sending HANDSHAKE...\n");
     handshake(drone_state->sockfd, drone_id);
+    printf("[DRONE-DEBUG] HANDSHAKE sent, awaiting ACK...\n");
     char buffer[BUFFER_SIZE];
     cJSON *msg = recv_json(drone_state->sockfd, buffer, sizeof(buffer));
+    printf("[DRONE-DEBUG] recv_json returned %p\n", (void*)msg);
     if (msg) {
-        printf("[DRONE] Server: %s\n", cJSON_Print(msg));
+        char *resp_str = cJSON_PrintUnformatted(msg);
+        if (resp_str) {
+            printf("[DRONE] Server: %s\n", resp_str);
+            free(resp_str);
+        }
         cJSON_Delete(msg);
     }
+    printf("[DRONE-DEBUG] After processing HANDSHAKE_ACK\n");
 
     // Send initial status
+    printf("[DRONE-DEBUG] Sending initial STATUS_UPDATE...\n");
     status_update(drone_state->sockfd, drone_id, 0, 0, "idle", 100, 1);
+    printf("[DRONE-DEBUG] STATUS_UPDATE sent\n");
 
     // Create movement and communication threads
+    printf("[DRONE-DEBUG] Creating threads\n");
     pthread_t move_tid, comm_tid;
-    pthread_create(&move_tid, NULL, movement_thread, drone_state);
-    pthread_create(&comm_tid, NULL, communication_thread, drone_state);
-
-    // Wait for threads
+    int ret1 = pthread_create(&move_tid, NULL, movement_thread, drone_state);
+    int ret2 = pthread_create(&comm_tid, NULL, communication_thread, drone_state);
+    printf("[DRONE-DEBUG] Threads created: %d, %d\n", ret1, ret2);
     pthread_join(move_tid, NULL);
     pthread_join(comm_tid, NULL);
+    printf("[DRONE-DEBUG] Threads joined\n");
 
     // Cleanup
+    printf("[DRONE-DEBUG] Cleaning up and exiting\n");
     close(drone_state->sockfd);
     pthread_mutex_destroy(&drone_state->lock);
     pthread_cond_destroy(&drone_state->mission_cv);

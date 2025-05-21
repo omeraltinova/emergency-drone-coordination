@@ -26,6 +26,10 @@
 #define MAX_CLIENTS 32
 #define BUFFER_SIZE 2048
 
+// Protocol intervals
+#define STATUS_UPDATE_INTERVAL 5
+#define HEARTBEAT_INTERVAL 10
+
 pthread_mutex_t drones_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t survivors_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -34,6 +38,7 @@ void* client_handler(void* arg);
 void* ui_thread(void* arg);
 void* survivor_generator(void*);
 void* ai_controller(void*);
+void *heartbeat_thread(void *arg);
 
 void send_json(int sockfd, cJSON *json) {
     char *data = cJSON_PrintUnformatted(json);
@@ -65,10 +70,14 @@ void handle_handshake(int client_sock, cJSON *msg) {
     pthread_mutex_lock(&drones_mutex);
     drones->add(drones,&d);
     pthread_mutex_unlock(&drones_mutex);
-    // Send HANDSHAKE_ACK
+    // Send HANDSHAKE_ACK with session_id and config
     cJSON *ack = cJSON_CreateObject();
     cJSON_AddStringToObject(ack, "type", "HANDSHAKE_ACK");
-    cJSON_AddStringToObject(ack, "message", "Registered");
+    cJSON_AddStringToObject(ack, "session_id", "S1");
+    cJSON *cfg = cJSON_CreateObject();
+    cJSON_AddNumberToObject(cfg, "status_update_interval", STATUS_UPDATE_INTERVAL);
+    cJSON_AddNumberToObject(cfg, "heartbeat_interval", HEARTBEAT_INTERVAL);
+    cJSON_AddItemToObject(ack, "config", cfg);
     send_json(client_sock, ack);
     cJSON_Delete(ack);
 }
@@ -94,7 +103,7 @@ void handle_status_update(int client_sock, cJSON *msg) {
             d->coord.x = x;
             d->coord.y = y;
             if (strcmp(st, "idle") == 0) d->status = IDLE;
-            else if (strcmp(st, "on_mission") == 0) d->status = ON_MISSION;
+            else if (strcmp(st, "busy") == 0) d->status = ON_MISSION;
             pthread_mutex_unlock(&d->lock);
             break;
         }
@@ -248,6 +257,11 @@ int main() {
     
     printf("[SERVER] Listening on port %d...\n", config.port);
 
+    // start heartbeat thread
+    pthread_t hb_tid;
+    pthread_create(&hb_tid, NULL, heartbeat_thread, NULL);
+    pthread_detach(hb_tid);
+
     while (running) {
         // Handle SDL events on macOS
         #ifdef __APPLE__
@@ -326,13 +340,22 @@ void *ai_controller(void *arg) {
         }
         pthread_mutex_unlock(&drones_mutex);
         if (best) {
-            // send mission
+            // send assign mission
+            int expiry = (int)time(NULL) + 300;
+            static int mission_counter = 1;
+            char mid[16]; sprintf(mid, "M%d", mission_counter++);
             printf("[AI] Assigning survivor at (%d,%d) to drone %d\n", s->coord.x, s->coord.y, best->id);
-            cJSON *js=cJSON_CreateObject();
-            cJSON_AddStringToObject(js,"type","MISSION_ASSIGN");
-            cJSON_AddNumberToObject(js,"x",s->coord.x);
-            cJSON_AddNumberToObject(js,"y",s->coord.y);
-            send_json(best->sockfd,js); cJSON_Delete(js);
+            cJSON *js = cJSON_CreateObject();
+            cJSON_AddStringToObject(js, "type", "ASSIGN_MISSION");
+            cJSON_AddStringToObject(js, "mission_id", mid);
+            cJSON_AddStringToObject(js, "priority", "medium");
+            cJSON *target = cJSON_CreateObject();
+            cJSON_AddNumberToObject(target, "x", s->coord.x);
+            cJSON_AddNumberToObject(target, "y", s->coord.y);
+            cJSON_AddItemToObject(js, "target", target);
+            cJSON_AddNumberToObject(js, "expiry", expiry);
+            cJSON_AddStringToObject(js, "checksum", "a1b2c3");
+            send_json(best->sockfd, js); cJSON_Delete(js);
             pthread_mutex_lock(&best->lock);
             best->status=ON_MISSION; 
             best->target = s->coord;
@@ -345,6 +368,24 @@ void *ai_controller(void *arg) {
             pthread_mutex_unlock(&survivors_mutex);
         }
         sleep(1);
+    }
+    return NULL;
+}
+
+// Heartbeat thread
+void *heartbeat_thread(void *arg) {
+    while (running) {
+        cJSON *hb = cJSON_CreateObject();
+        cJSON_AddStringToObject(hb, "type", "HEARTBEAT");
+        cJSON_AddNumberToObject(hb, "timestamp", (int)time(NULL));
+        pthread_mutex_lock(&drones_mutex);
+        for (Node *n = drones->head; n; n = n->next) {
+            Drone *d = *(Drone **)n->data;
+            send_json(d->sockfd, hb);
+        }
+        pthread_mutex_unlock(&drones_mutex);
+        cJSON_Delete(hb);
+        sleep(HEARTBEAT_INTERVAL);
     }
     return NULL;
 }
