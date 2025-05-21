@@ -183,25 +183,16 @@ void* client_handler(void* arg) {
 
 // UI thread to handle SDL rendering
 void *ui_thread(void *arg) {
-    #ifndef __APPLE__
+    // Initialize SDL and create window in UI thread
     if (init_sdl_window()) exit(EXIT_FAILURE);
-    #endif
 
     while (running) {
         draw_map();
-        #ifndef __APPLE__
-        // Process SDL events to keep UI responsive on non-Apple systems
-        if (check_events()) {
-            running = 0;
-            break;
-        }
-        #endif
+        if (check_events()) { running = 0; break; }
         SDL_Delay(100);
     }
-    #ifndef __APPLE__
-    // Cleanup SDL before exit on non-Apple systems
+    // Cleanup SDL
     quit_all();
-    #endif
     return NULL;
 }
 
@@ -240,20 +231,10 @@ int main(int argc, char *argv[]) {
     // Initialize map dimensions with configured values (height, width)
     init_map(config.map_height, config.map_width);
 
+    // SDL initialization: on macOS do here; on Linux do in UI thread
     #ifdef __APPLE__
-    // On macOS, initialize SDL in the main thread
-    if (init_sdl_main_thread()) {
-        fprintf(stderr, "Failed to initialize SDL\n");
-        exit(EXIT_FAILURE);
-    }
-    #else
-    // On other systems (like Linux), initialize SDL here before creating UI thread
-    if (init_sdl_window()) {
-        fprintf(stderr, "Failed to initialize SDL for non-Apple system\n");
-        exit(EXIT_FAILURE);
-    }
+    if (init_sdl_main_thread()) { fprintf(stderr, "Failed to initialize SDL\n"); exit(EXIT_FAILURE); }
     #endif
-
     // Start Phase1 simulator threads
     pthread_t surv_tid, ai_tid, ui_tid;
     
@@ -293,12 +274,10 @@ int main(int argc, char *argv[]) {
 
     while (running) {
         // Handle SDL events on macOS
-        #ifdef __APPLE__
         if (check_events()) {
             running = 0;
             break;
         }
-        #endif
 
         // Use select to handle both network and events
         fd_set readfds;

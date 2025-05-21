@@ -215,6 +215,7 @@ int draw_map() {
 int check_events() {
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_QUIT) return 1;
+        if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE) return 1;
         if (event.type == SDL_KEYDOWN &&
             event.key.keysym.sym == SDLK_ESCAPE)
             return 1;
