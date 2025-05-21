@@ -10,6 +10,9 @@
 #include "headers/globals.h"
 #include "headers/map.h"
 
+extern List *priority_survivors;
+extern pthread_mutex_t priority_mutex;
+
 Survivor *create_survivor(Coord *coord, char *info,
                           struct tm *discovery_time) {
     Survivor *s = malloc(sizeof(Survivor));
@@ -47,13 +50,20 @@ void *survivor_generator(void *args) {
         // Create and add to lists
         Survivor *s = create_survivor(&coord, info, &discovery_time);
         if (!s) continue;
-
-        // Add to global survivor list
-        Node* added_node_global = survivors->add(survivors, &s);
-        if (!added_node_global) {
-            fprintf(stderr, "Survivor Generator: Failed to add to global survivors list (full?)\n");
-            free(s); // Clean up survivor if not added
-            sleep(1); // Avoid busy loop if list is full
+        // 25%% chance critical (emergency), else normal
+        s->emergency_level = (rand() % 4 == 0) ? 1 : 0;
+        int added = 0;
+        if (s->emergency_level) {
+            pthread_mutex_lock(&priority_mutex);
+            added = priority_survivors->add(priority_survivors, &s);
+            pthread_mutex_unlock(&priority_mutex);
+        } else {
+            added = survivors->add(survivors, &s);
+        }
+        if (!added) {
+            fprintf(stderr, "Survivor Generator: Failed to add survivor (full?) level=%d\n", s->emergency_level);
+            free(s);
+            sleep(1);
             continue;
         }
 
@@ -100,9 +110,7 @@ void survivor_cleanup(Survivor *s) {
     // Let's re-verify how removedata and add work with datasize = sizeof(Survivor*).
     // add(list, &survivor_ptr) -> memcpy(node->data, &survivor_ptr, sizeof(Survivor*)) -> node->data now holds survivor_ptr's value.
     // removedata(list, &survivor_ptr_to_match) -> memcmp(temp->data, &survivor_ptr_to_match, sizeof(Survivor*)). This is correct.
-    // So, if map cell list stores Survivor*, and s is Survivor*, we pass &s.
-
-    // If list stores Survivor* (meaning datasize is sizeof(Survivor*) and add got &s)
+    // So, if list stores Survivor* (meaning datasize is sizeof(Survivor*) and add got &s)
     // then map.cells[...]->removedata needs the address of the Survivor* to match.
     // 's' is the Survivor*. The list contains the *value* of pointers like 's'.
     // So we need to find where this 's' value is stored in the list.
