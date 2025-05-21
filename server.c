@@ -32,6 +32,9 @@
 #define STATUS_UPDATE_INTERVAL 5
 #define HEARTBEAT_INTERVAL 10
 
+// Global timestamp of last drone message
+time_t last_msg_time;
+
 pthread_mutex_t drones_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t survivors_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -42,6 +45,7 @@ void* survivor_generator(void*);
 void* ai_controller(void*);
 void *heartbeat_thread(void *arg);
 void* heartbeat_monitor(void *arg);
+void* watchdog_thread(void *arg);
 
 void send_json(int sockfd, cJSON *json) {
     char *data = cJSON_PrintUnformatted(json);
@@ -185,6 +189,7 @@ void* client_handler(void* arg) {
         // receive JSON message
         errno = 0;
         cJSON *msg = recv_json(client_sock, buffer, sizeof(buffer));
+        if (msg) last_msg_time = time(NULL);
         if (!msg) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
             if (!waiting_reconnect) {
@@ -218,8 +223,10 @@ void* client_handler(void* arg) {
         } else if (strcmp(type, "STATUS_UPDATE") == 0) {
             handle_status_update(client_sock, msg);
         } else if (strcmp(type, "MISSION_COMPLETE") == 0) {
+            // Handle mission completions from drone
             handle_mission_complete(client_sock, msg);
         } else if (strcmp(type, "HEARTBEAT_RESPONSE") == 0) {
+            // Update heartbeat timestamp
             handle_heartbeat_response(client_sock, msg);
         } else {
             // Send ERROR for unknown message type
@@ -315,6 +322,12 @@ int main(int argc, char *argv[]) {
     pthread_t hb_send_tid;
     pthread_create(&hb_send_tid, NULL, heartbeat_thread, NULL);
     pthread_detach(hb_send_tid);
+
+    // initialize last drone activity timestamp
+    last_msg_time = time(NULL);
+    pthread_t wd_tid;
+    pthread_create(&wd_tid, NULL, watchdog_thread, NULL);
+    pthread_detach(wd_tid);
 
     server_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (server_sock < 0) { perror("socket"); exit(EXIT_FAILURE); }
@@ -481,6 +494,18 @@ void* heartbeat_monitor(void *arg) {
             n = n->next;
         }
         pthread_mutex_unlock(&drones_mutex);
+    }
+    return NULL;
+}
+
+// Watchdog: shutdown if no drone messages in 60 seconds
+void* watchdog_thread(void *arg) {
+    while (running) {
+        sleep(1);
+        if (time(NULL) - last_msg_time >= 60) {
+            printf("[SERVER] No drone activity for 60s, shutting down\n");
+            running = 0;
+        }
     }
     return NULL;
 }
