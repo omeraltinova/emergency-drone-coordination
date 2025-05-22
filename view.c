@@ -11,6 +11,8 @@
 // SDL globals
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
+// Include priority queue for disconnected missions
+extern List *priority_survivors;
 SDL_Event event;
 int window_width, window_height;
 
@@ -24,7 +26,12 @@ const SDL_Color YELLOW = {255, 255, 0, 255};    // Target locations
 const SDL_Color WHITE = {255, 255, 255, 255};
 const SDL_Color PURPLE = {128, 0, 128, 255};    // Helped survivors
 
-int init_sdl_window() {
+// Mutex for SDL operations
+pthread_mutex_t sdl_mutex = PTHREAD_MUTEX_INITIALIZER;
+volatile int sdl_ready = 0;
+
+// Function to be called from main thread to initialize SDL
+int init_sdl_main_thread() {
     window_width = map.width * CELL_SIZE;
     window_height = map.height * CELL_SIZE;
 
@@ -46,17 +53,17 @@ int init_sdl_window() {
                             SDL_WINDOW_SHOWN);
     if (!window) {
         fprintf(stderr, "SDL_CreateWindow Error: %s\n", SDL_GetError());
-        fprintf(stderr, "Window dimensions: %dx%d\n", window_width, window_height);
         SDL_Quit();
         return 1;
     }
-    printf("Window created successfully with dimensions: %dx%d\n", window_width, window_height);
+    // Ensure window is visible and on top
+    SDL_ShowWindow(window);
+    SDL_RaiseWindow(window);
 
-    // Create renderer with basic flags first
+    // Create renderer
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) {
         fprintf(stderr, "Failed to create accelerated renderer: %s\n", SDL_GetError());
-        printf("Falling back to software renderer...\n");
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
         if (!renderer) {
             fprintf(stderr, "Software renderer also failed: %s\n", SDL_GetError());
@@ -65,26 +72,35 @@ int init_sdl_window() {
             return 1;
         }
     }
-    printf("Renderer created successfully\n");
 
-    // Set render draw color to black for clearing
-    if (SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) < 0) {
-        fprintf(stderr, "SDL_SetRenderDrawColor Error: %s\n", SDL_GetError());
-        return 1;
-    }
-    
-    if (SDL_RenderClear(renderer) < 0) {
-        fprintf(stderr, "SDL_RenderClear Error: %s\n", SDL_GetError());
-        return 1;
-    }
-    
-    SDL_RenderPresent(renderer);
-    printf("Initial render completed\n");
-
+    sdl_ready = 1;
     return 0;
 }
 
+// Function for other threads to wait for SDL initialization
+int wait_for_sdl_init() {
+    while (!sdl_ready) {
+        SDL_Delay(100);
+    }
+    return 0;
+}
+
+int init_sdl_window() {
+    #ifdef __APPLE__
+    return wait_for_sdl_init();
+    #else
+    return init_sdl_main_thread();
+    #endif
+}
+
+// Thread-safe drawing functions
 void draw_cell(int x, int y, SDL_Color color) {
+    pthread_mutex_lock(&sdl_mutex);
+    if (!sdl_ready) {
+        pthread_mutex_unlock(&sdl_mutex);
+        return;
+    }
+    
     SDL_Rect rect = {
         .x = y * CELL_SIZE,
         .y = x * CELL_SIZE,
@@ -92,15 +108,9 @@ void draw_cell(int x, int y, SDL_Color color) {
         .h = CELL_SIZE
     };
     
-    if (SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a) < 0) {
-        fprintf(stderr, "SDL_SetRenderDrawColor Error in draw_cell: %s\n", SDL_GetError());
-        return;
-    }
-    
-    if (SDL_RenderFillRect(renderer, &rect) < 0) {
-        fprintf(stderr, "SDL_RenderFillRect Error: %s\n", SDL_GetError());
-        return;
-    }
+    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+    SDL_RenderFillRect(renderer, &rect);
+    pthread_mutex_unlock(&sdl_mutex);
 }
 
 void draw_target_marker(int x, int y) {
@@ -141,7 +151,18 @@ void draw_drones() {
 } // draw_drones sonu
 
 void draw_survivors() {
-    // Yeni: merkezi List *survivors ve List *helpedsurvivors kullan
+    // Yeni: merkezi List *priority_survivors, *survivors ve *helpedsurvivors kullan
+    // Draw priority survivors (orphans) in orange
+    if (priority_survivors) {
+        pthread_mutex_lock(&priority_survivors->lock);
+        Node *pn = priority_survivors->head;
+        while (pn) {
+            Survivor *sv = *(Survivor**)pn->data;
+            if (sv) draw_cell(sv->coord.x, sv->coord.y, ORANGE);
+            pn = pn->next;
+        }
+        pthread_mutex_unlock(&priority_survivors->lock);
+    }
     extern List *survivors;
     extern List *helpedsurvivors;
     if (survivors) {
@@ -150,8 +171,8 @@ void draw_survivors() {
         while (node) {
             Survivor *s = *(Survivor **)node->data;
             if (!s) { node = node->next; continue; }
-            SDL_Color color = (s->status == 0) ? RED : ORANGE;
-            draw_cell(s->coord.x, s->coord.y, color);
+            // Normal survivors in red
+            draw_cell(s->coord.x, s->coord.y, RED);
             node = node->next;
         }
         pthread_mutex_unlock(&survivors->lock);
@@ -209,10 +230,22 @@ int draw_map() {
 
 int check_events() {
     while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_QUIT) return 1;
-        if (event.type == SDL_KEYDOWN &&
-            event.key.keysym.sym == SDLK_ESCAPE)
-            return 1;
+        switch (event.type) {
+            case SDL_QUIT:
+                return 1;
+            case SDL_WINDOWEVENT:
+                switch (event.window.event) {
+                    case SDL_WINDOWEVENT_CLOSE:
+                        return 1;
+                    case SDL_WINDOWEVENT_EXPOSED:
+                        draw_map();
+                        break;
+                }
+                break;
+            case SDL_KEYDOWN:
+                if (event.key.keysym.sym == SDLK_ESCAPE) return 1;
+                break;
+        }
     }
     return 0;
 }

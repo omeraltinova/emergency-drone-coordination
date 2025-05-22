@@ -10,6 +10,7 @@ typedef struct survivor {
     struct tm discovery_time;
     struct tm helped_time;
     char info[25];
+    int emergency_level; // 1=critical survivor, 0=normal
 } Survivor;
 
 // Global survivor lists (extern)
