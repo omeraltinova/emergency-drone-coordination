@@ -473,7 +473,7 @@ void *ai_controller(void *arg) {
             // send assign mission
             int expiry = (int)time(NULL) + 300;
             static int mission_counter = 1;
-            char mid[16]; sprintf(mid, "M%d", mission_counter++);
+            char mid[16]; snprintf(mid, sizeof(mid), "M%d", mission_counter++);
             printf("[AI] Assigning survivor at (%d,%d) to drone %d\n", s->coord.x, s->coord.y, best->id);
             cJSON *js = cJSON_CreateObject();
             cJSON_AddStringToObject(js, "type", "ASSIGN_MISSION");

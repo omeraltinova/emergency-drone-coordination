@@ -199,10 +199,12 @@ void* drone_behavior(void *arg) {
                        d->id, d->coord.x, d->coord.y);
                 // Status is now IDLE, will loop back to the while(d->status == IDLE && running) check
             }
+            // Check if still ON_MISSION before unlocking
+            bool still_on_mission = (d->status == ON_MISSION);
             pthread_mutex_unlock(&d->lock); // Unlock after processing ON_MISSION state for this step
             
             // If still ON_MISSION (i.e. not yet reached target) and running, then sleep
-            if (d->status == ON_MISSION && running) { 
+            if (still_on_mission && running) { 
                 usleep(500000); 
             }
         } else if (d->status != IDLE) { // Should ideally not happen if only IDLE and ON_MISSION are used by drone itself

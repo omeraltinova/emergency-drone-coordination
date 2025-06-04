@@ -348,7 +348,6 @@ void destroy(List *list) {
 
     // Free allocated memory
     free(list->startaddress);
-    memset(list, 0, sizeof(List));
     free(list);
 }
 
